@@ -17,11 +17,12 @@
     "db:push": "npm run push -w packages/db",
     "db:migrate": "npm run migrate -w packages/db"
   },
-  "engines": {
-    "node": ">=20.0.0"
+  "dependencies": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   },
   "overrides": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "$react",
+    "react-dom": "$react-dom"
   }
 }

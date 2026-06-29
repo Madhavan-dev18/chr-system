@@ -101,7 +101,7 @@ export default auth(async (req) => {
   return; // Let the request proceed
 });
 
-// Optionally, configure the matcher to optimize performance
+// Configure the matcher to optimize performance and prevent interference with static asset generation
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };

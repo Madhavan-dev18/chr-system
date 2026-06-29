@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  transpilePackages: ['@chr/db'],
   // Ensure we don't ignore build errors as strictly required by AGENTS.md
   typescript: {
     ignoreBuildErrors: false,
