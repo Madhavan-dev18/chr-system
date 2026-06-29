@@ -1,0 +1,14 @@
+{
+  "..\\..\\node_modules\\next\\dist\\client\\index.js -> ../pages/_app": {
+    "id": 4092,
+    "files": [
+      "static/chunks/92.eb599ff99748edd8.js"
+    ]
+  },
+  "..\\..\\node_modules\\next\\dist\\client\\index.js -> ../pages/_error": {
+    "id": 8145,
+    "files": [
+      "static/chunks/145.0c2c23b4b58d5c54.js"
+    ]
+  }
+}

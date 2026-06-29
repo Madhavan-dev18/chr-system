@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DOCTOR
+  NURSE
+  PATIENT
+  RECEPTIONIST
+  LAB_TECH
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  LOGIN_FAIL
+  VIEW
+  CREATE
+  UPDATE
+  DELETE
+  EXPORT
+  ROLE_CHANGE
+  AI_CALL
+}
+
+model Clinic {
+  id        String    @id @default(uuid()) @db.Uuid // Using standard UUID for simplicity, would ideally be UUID v7 generated in TS
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz
+  updatedAt DateTime  @updatedAt @db.Timestamptz
+
+  users     User[]
+  auditLogs AuditLog[]
+
+  @@map("clinics")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String
+  role         Role
+  clinicId     String?   @db.Uuid
+  isActive     Boolean   @default(true)
+  mfaSecret    Bytes?    // Encrypted AES-256-GCM
+  mfaEnabled   Boolean   @default(false)
+  lastLoginAt  DateTime? @db.Timestamptz
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime? @db.Timestamptz
+  deletedAt    DateTime? @db.Timestamptz
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @db.Timestamptz
+  version      Int       @default(1)
+
+  clinic       Clinic?   @relation(fields: [clinicId], references: [id])
+  auditLogs    AuditLog[]
+
+  @@index([clinicId, deletedAt])
+  @@index([email])
+  @@map("users")
+}
+
+model AuditLog {
+  id         BigInt      @id @default(autoincrement())
+  userId     String?     @db.Uuid // Optional to handle pre-auth logs (like LOGIN_FAIL)
+  action     AuditAction
+  resource   String
+  resourceId String?     @db.Uuid
+  clinicId   String?     @db.Uuid // Important for cross-tenant isolation auditing
+  ipAddress  String?
+  userAgent  String?
+  requestId  String?     @db.Uuid
+  metadata   Json?
+  timestamp  DateTime    @default(now()) @db.Timestamptz
+
+  user       User?       @relation(fields: [userId], references: [id])
+  clinic     Clinic?     @relation(fields: [clinicId], references: [id])
+
+  // NOTE: In a real production DB, this would be a BRIN index.
+  // Prisma doesn't natively support BRIN index creation yet, so we use a regular btree index for now.
+  @@index([timestamp])
+  @@map("audit_logs")
+}
