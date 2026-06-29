@@ -4,14 +4,10 @@ import { redis } from './redis';
 
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
 
-export function generateRefreshToken(): { raw: string; hash: string } {
-  const raw = crypto.randomBytes(32).toString('hex');
-  const hash = bcrypt.hashSync(raw, 12);
-  return { raw, hash };
-}
+
 
 export async function storeRefreshToken(
-  hash: string,
+  hash: string, // MUST be a SHA-256 hash
   userId: string,
   clinicId: string | null
 ): Promise<void> {

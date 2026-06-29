@@ -4,6 +4,8 @@ import { signIn } from '@/lib/auth';
 import { AuthError } from 'next-auth';
 import { z } from 'zod';
 import { generateRefreshTokensV2, storeRefreshToken } from '@/lib/tokens';
+import { cookies } from 'next/headers';
+import { auth } from '@/lib/auth';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -34,9 +36,22 @@ export async function loginAction(prevState: any, formData: FormData) {
     // if redirect: true. If redirect: false, it just returns or throws AuthError.
     
     // If we reach here, signIn was successful.
-    // However, we need to provision a refresh token since NextAuth JWT is short-lived.
-    // NOTE: In a full integration, you might want to issue the refresh token cookie here
-    // manually using `next/headers` cookies(), or return the token to the client.
+    const session = await auth();
+    if (session?.user) {
+      const { raw, hash } = generateRefreshTokensV2();
+      await storeRefreshToken(hash, session.user.id, session.user.clinicId || null);
+      
+      const cookieStore = await cookies();
+      const cookieName = process.env.NODE_ENV === 'production' ? '__Secure-auth.refresh-token' : 'auth.refresh-token';
+      
+      cookieStore.set(cookieName, raw, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60, // 7 days
+      });
+    }
     
     return { success: true };
 

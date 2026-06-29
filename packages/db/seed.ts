@@ -17,29 +17,30 @@ async function main() {
     update: {},
     create: {
       name: 'Central Hospital (Seed)',
+      slug: 'central-hospital',
     },
   });
 
   console.log(`✅ Clinic ensured: ${clinic.name}`);
 
   // Create root admin (User requested credentials)
-  const adminEmail = 'madhavan'; // Using string 'madhavan' as per request, even if not strict email format, NextAuth will accept if we don't strictly require valid email domain for the root user. Wait, User model schema email field requires uniqueness but Zod might complain if it's not an email. Let's make it 'madhavan@chr-system.local' but mention they login with email.
+  const adminEmail = 'madhavantt2017@gmail.com';
   const rawPassword = '@123';
   const passwordHash = bcrypt.hashSync(rawPassword, 12);
 
   const adminUser = await prisma.user.upsert({
-    where: { email: 'madhavan@chr-system.local' },
+    where: { email: adminEmail },
     update: { passwordHash },
     create: {
-      email: 'madhavan@chr-system.local', // Keeping email format for DB, User should type this in login
+      email: adminEmail,
       passwordHash,
       role: Role.ADMIN,
       clinicId: clinic.id,
     },
   });
 
-  console.log(`✅ Admin user ensured: madhavan@chr-system.local`);
-  console.log(`🔐 Admin Password is set to: @123`);
+  console.log(`✅ Admin user ensured: ${adminEmail}`);
+  console.log(`🔐 Admin Password is set to: ${rawPassword}`);
 
   // Create Dummy Doctor
   const doctorUser = await prisma.user.upsert({

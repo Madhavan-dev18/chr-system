@@ -4,16 +4,20 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
 // Note: Ensure Redis URL and Token are available in Edge Env
-const redis = new Redis({
+const hasUpstashKeys = process.env.UPSTASH_REDIS_REST_URL && 
+  process.env.UPSTASH_REDIS_REST_URL !== 'https://dummy.upstash.io' &&
+  !process.env.UPSTASH_REDIS_REST_URL.includes('[id]');
+
+const redis = hasUpstashKeys ? new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+}) : null;
 
-const rateLimit = new Ratelimit({
+const rateLimit = redis ? new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(100, '10 s'), // 100 requests per 10 seconds per IP
   analytics: true,
-});
+}) : null;
 
 const { auth } = NextAuth(authConfig);
 
@@ -33,7 +37,7 @@ export default auth(async (req) => {
     pathname.startsWith('/lab');
 
   // API Rate Limiting
-  if (pathname.startsWith('/api')) {
+  if (pathname.startsWith('/api') && rateLimit) {
     // Get IP from request headers or default to anonymous
     const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'anonymous';
 
@@ -103,5 +107,5 @@ export default auth(async (req) => {
 
 // Configure the matcher to optimize performance and prevent interference with static asset generation
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };

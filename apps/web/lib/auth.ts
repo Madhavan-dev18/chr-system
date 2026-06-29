@@ -3,7 +3,7 @@ import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { prisma } from './prisma';
 import { auditLog } from './audit';
-import { checkRateLimit } from './rate-limit';
+import { checkRateLimit, incrementRateLimit, resetRateLimit } from './rate-limit';
 import { authConfig } from './auth.config';
 
 class RateLimitError extends CredentialsSignin {
@@ -66,6 +66,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             data: { failedLogins, lockedUntil },
           });
 
+          await incrementRateLimit(email);
+
           await auditLog(prisma, {
             userId: user.id,
             clinicId: user.clinicId,
@@ -90,6 +92,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             lastLoginAt: new Date(),
           },
         });
+
+        await resetRateLimit(email);
 
         // The audit log for successful LOGIN will be recorded in the route handler or tRPC procedure
         // when the refresh token is also provisioned, to keep it cohesive.
