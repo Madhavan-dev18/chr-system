@@ -91,12 +91,12 @@ export default auth(async (req) => {
     // If logged in and hitting the root or login page, redirect to their specific dashboard
     if (pathname === '/' || pathname === '/login') {
       switch (role) {
-        case 'ADMIN': return Response.redirect(new URL('/admin', nextUrl));
-        case 'DOCTOR': return Response.redirect(new URL('/doctor', nextUrl));
-        case 'NURSE': return Response.redirect(new URL('/nurse', nextUrl));
+        case 'ADMIN': return Response.redirect(new URL('/admin/patients', nextUrl));
+        case 'DOCTOR': return Response.redirect(new URL('/doctor/patients', nextUrl));
+        case 'NURSE': return Response.redirect(new URL('/nurse/patients', nextUrl));
         case 'PATIENT': return Response.redirect(new URL('/patient', nextUrl));
-        case 'RECEPTIONIST': return Response.redirect(new URL('/receptionist', nextUrl));
-        case 'LAB_TECH': return Response.redirect(new URL('/lab', nextUrl));
+        case 'RECEPTIONIST': return Response.redirect(new URL('/receptionist/patients', nextUrl)); // Assuming future
+        case 'LAB_TECH': return Response.redirect(new URL('/lab/orders', nextUrl)); // Assuming future
         default: return Response.redirect(new URL('/unauthorized', nextUrl));
       }
     }

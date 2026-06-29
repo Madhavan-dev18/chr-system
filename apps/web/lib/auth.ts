@@ -5,7 +5,8 @@ import { prisma } from './prisma';
 import { auditLog } from './audit';
 import { checkRateLimit, incrementRateLimit, resetRateLimit } from './rate-limit';
 import { authConfig } from './auth.config';
-
+import { cookies } from 'next/headers';
+import { generateRefreshTokensV2, storeRefreshToken } from './tokens';
 class RateLimitError extends CredentialsSignin {
   code = 'rate_limit_exceeded';
 }
@@ -95,9 +96,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         await resetRateLimit(email);
 
+        // 6. Generate Refresh Token
+        const { raw, hash } = generateRefreshTokensV2();
+        await storeRefreshToken(hash, user.id, user.clinicId);
+        
+        const cookieStore = await cookies();
+        const cookieName = process.env.NODE_ENV === 'production' ? '__Secure-auth.refresh-token' : 'auth.refresh-token';
+        cookieStore.set(cookieName, raw, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 7 * 24 * 60 * 60, // 7 days
+        });
+
         // The audit log for successful LOGIN will be recorded in the route handler or tRPC procedure
         // when the refresh token is also provisioned, to keep it cohesive.
-
         return {
           id: user.id,
           email: user.email,

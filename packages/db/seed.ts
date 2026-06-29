@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { PrismaClient, Role } from '@prisma/client'; // ts reload
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import path from 'path';
