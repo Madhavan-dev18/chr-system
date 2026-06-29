@@ -1,19 +1,7 @@
 import type { Metadata } from 'next';
-import { DM_Sans, DM_Mono } from 'next/font/google';
 import './globals.css';
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  variable: '--font-dm-sans',
-  display: 'swap',
-});
-
-const dmMono = DM_Mono({
-  weight: ['300', '400', '500'],
-  subsets: ['latin'],
-  variable: '--font-dm-mono',
-  display: 'swap',
-});
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'CHR-System | Clinical Health Records',
@@ -26,10 +14,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
+    <html lang="en">
       <body className="font-sans antialiased bg-background text-foreground">
         {children}
       </body>
     </html>
   );
 }
+

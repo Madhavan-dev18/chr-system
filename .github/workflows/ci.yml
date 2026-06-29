@@ -1,0 +1,45 @@
+name: CHR-System CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Install Dependencies
+      run: npm ci
+
+    - name: Generate Prisma Client
+      run: npm run generate -w packages/db
+
+    - name: Typecheck Next.js
+      run: npm run typecheck -w apps/web
+
+    - name: Build Next.js
+      # We skip the lint step here because next build runs linting automatically
+      run: npm run build -w apps/web
+      env:
+        # Dummy build-time variables needed for Next.js to compile correctly
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+        NEXT_PUBLIC_SUPABASE_URL: "https://dummy.supabase.co"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "dummy"
+        SUPABASE_SERVICE_ROLE_KEY: "dummy"
+        UPSTASH_REDIS_REST_URL: "https://dummy.upstash.io"
+        UPSTASH_REDIS_REST_TOKEN: "dummy"
+        AUTH_SECRET: "dummy_secret_for_build"
+        RECORD_ENCRYPTION_KEY: "OEZhTEJrdVlBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+        GEMINI_API_KEY: "dummy"

@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from './prisma';
 import { auditLog } from './audit';
 import { checkRateLimit } from './rate-limit';
+import { authConfig } from './auth.config';
 
 class RateLimitError extends CredentialsSignin {
   code = 'rate_limit_exceeded';
@@ -14,6 +15,7 @@ class AccountLockedError extends CredentialsSignin {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       credentials: {
@@ -101,31 +103,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  session: {
-    strategy: 'jwt',
-    maxAge: 15 * 60, // 15 minutes (short-lived access token)
-  },
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = user.role;
-        token.clinicId = user.clinicId;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
-        session.user.clinicId = token.clinicId;
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: '/login',
-  },
   cookies: {
     sessionToken: {
       name: process.env.NODE_ENV === 'production' ? '__Secure-auth.session-token' : 'auth.session-token',

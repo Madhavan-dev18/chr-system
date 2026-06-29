@@ -37,8 +37,11 @@ model Clinic {
   createdAt DateTime  @default(now()) @db.Timestamptz
   updatedAt DateTime  @updatedAt @db.Timestamptz
 
-  users     User[]
-  auditLogs AuditLog[]
+  users          User[]
+  auditLogs      AuditLog[]
+  patients       Patient[]
+  vitals         Vitals[]
+  medicalRecords MedicalRecord[]
 
   @@map("clinics")
 }
@@ -62,6 +65,13 @@ model User {
 
   clinic       Clinic?   @relation(fields: [clinicId], references: [id])
   auditLogs    AuditLog[]
+
+  // Reverse relations for Phase 2
+  patientProfile Patient?  @relation(name: "PatientUserLink")
+  patientsAsDoctor Patient[] @relation(name: "AssignedDoctor")
+  patientsAsNurse Patient[] @relation(name: "AssignedNurse")
+  recordedVitals Vitals[]
+  authoredRecords MedicalRecord[]
 
   @@index([clinicId, deletedAt])
   @@index([email])
@@ -88,4 +98,107 @@ model AuditLog {
   // Prisma doesn't natively support BRIN index creation yet, so we use a regular btree index for now.
   @@index([timestamp])
   @@map("audit_logs")
+}
+
+model Patient {
+  id               String    @id @default(uuid()) @db.Uuid
+  mrn              String    @unique
+  firstName        String
+  lastName         String
+  dob              DateTime  @db.Date
+  gender           String
+  bloodType        String?
+  allergies        String[]
+  phone            String?
+  email            String?
+  address          String?
+  emergencyContact String?
+  
+  // Relationships
+  clinicId         String    @db.Uuid
+  clinic           Clinic    @relation(fields: [clinicId], references: [id])
+  
+  userId           String?   @unique @db.Uuid // If they have portal access
+  user             User?     @relation(name: "PatientUserLink", fields: [userId], references: [id])
+
+  assignedDoctorId String?   @db.Uuid
+  assignedDoctor   User?     @relation(name: "AssignedDoctor", fields: [assignedDoctorId], references: [id])
+
+  assignedNurseId  String?   @db.Uuid
+  assignedNurse    User?     @relation(name: "AssignedNurse", fields: [assignedNurseId], references: [id])
+
+  vitals           Vitals[]
+  medicalRecords   MedicalRecord[]
+
+  createdAt        DateTime  @default(now()) @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @db.Timestamptz
+  deletedAt        DateTime? @db.Timestamptz
+  version          Int       @default(1)
+
+  @@index([clinicId, deletedAt])
+  @@index([mrn])
+  @@index([assignedDoctorId])
+  @@index([assignedNurseId])
+  @@map("patients")
+}
+
+model Vitals {
+  id               String    @id @default(uuid()) @db.Uuid
+  
+  patientId        String    @db.Uuid
+  patient          Patient   @relation(fields: [patientId], references: [id])
+
+  recordedById     String    @db.Uuid
+  recordedBy       User      @relation(fields: [recordedById], references: [id])
+
+  recordedAt       DateTime  @default(now()) @db.Timestamptz
+  
+  bpSystolic       Int?
+  bpDiastolic      Int?
+  heartRate        Int?
+  spo2             Int?
+  temperatureF     Float?
+  respiratoryRate  Int?
+  weightKg         Float?
+  heightCm         Float?
+  notes            String?
+
+  clinicId         String    @db.Uuid
+  clinic           Clinic    @relation(fields: [clinicId], references: [id])
+
+  @@index([patientId, recordedAt(sort: Desc)])
+  @@index([clinicId])
+  @@map("vitals")
+}
+
+model MedicalRecord {
+  id               String    @id @default(uuid()) @db.Uuid
+  
+  patientId        String    @db.Uuid
+  patient          Patient   @relation(fields: [patientId], references: [id])
+
+  doctorId         String    @db.Uuid
+  doctor           User      @relation(fields: [doctorId], references: [id])
+
+  recordType       String    // e.g. "SOAP_NOTE", "CONSULTATION"
+  
+  // Encrypted fields (AES-256-GCM)
+  encryptedContent Bytes
+  iv               Bytes
+  authTag          Bytes
+
+  diagnosisCodes   String[]  // e.g. ["I21.9", "E11.9"]
+  attachments      String[]  // S3 object keys
+
+  clinicId         String    @db.Uuid
+  clinic           Clinic    @relation(fields: [clinicId], references: [id])
+
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @db.Timestamptz
+  deletedAt        DateTime? @db.Timestamptz
+
+  @@index([patientId, createdAt(sort: Desc)])
+  @@index([clinicId, deletedAt])
+  @@map("medical_records")
 }

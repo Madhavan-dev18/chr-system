@@ -18,8 +18,8 @@ export async function storeRefreshToken(
   const key = `auth:rt:${hash}`;
   const payload = JSON.stringify({ userId, clinicId });
   
-  // Store the hash with a 7 day TTL
-  await redis.set(key, payload, 'EX', REFRESH_TOKEN_TTL);
+  // Store the hash with a 7 day TTL using Upstash signature
+  await redis.set(key, payload, { ex: REFRESH_TOKEN_TTL });
 }
 
 export async function consumeRefreshToken(
@@ -36,21 +36,16 @@ export async function consumeRefreshToken(
   const deterministicHash = crypto.createHash('sha256').update(rawToken).digest('hex');
   const key = `auth:rt:${deterministicHash}`;
   
-  const data = await redis.get(key);
+  const data = await redis.get<{ userId: string; clinicId: string | null }>(key);
   if (!data) return null;
   
   // SINGLE USE: Delete the token immediately upon use (rotation)
   await redis.del(key);
   
-  try {
-    const payload = JSON.parse(data);
-    return {
-      userId: payload.userId,
-      clinicId: payload.clinicId || null,
-    };
-  } catch {
-    return null;
-  }
+  return {
+    userId: data.userId,
+    clinicId: data.clinicId || null,
+  };
 }
 
 // Updated generator to use SHA-256 for Redis O(1) lookup

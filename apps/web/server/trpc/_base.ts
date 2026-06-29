@@ -66,3 +66,31 @@ export const allowedRoles = (roles: Role[]) => {
     });
   });
 };
+
+export const adminProcedure = protectedProcedure.use(allowedRoles([Role.ADMIN]));
+export const doctorProcedure = protectedProcedure.use(allowedRoles([Role.DOCTOR]));
+export const nurseProcedure = protectedProcedure.use(allowedRoles([Role.NURSE]));
+export const patientProcedure = protectedProcedure.use(allowedRoles([Role.PATIENT]));
+export const receptionistProcedure = protectedProcedure.use(allowedRoles([Role.RECEPTIONIST]));
+export const labTechProcedure = protectedProcedure.use(allowedRoles([Role.LAB_TECH]));
+
+// Helper to strictly scope procedures to a clinic context
+export const clinicScopedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.session.user.clinicId) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'This action requires a clinic context.',
+    });
+  }
+  
+  return next({
+    ctx: {
+      ...ctx,
+      // Overwrite the type so clinicId is guaranteed to be a string in downstream resolvers
+      session: {
+        ...ctx.session,
+        user: { ...ctx.session.user, clinicId: ctx.session.user.clinicId as string },
+      }
+    },
+  });
+});

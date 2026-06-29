@@ -25,9 +25,9 @@
 ## Critical Constraints (non-negotiable)
 1. **Don't touch `src/`** — that is legacy MediSafe code, scheduled for removal
 2. Build everything fresh under `apps/web/` + `packages/db/`
-3. **Stack**: Next.js 15 · TypeScript strict · PostgreSQL 16 · Prisma · tRPC · NextAuth v5 · Redis · Ollama
+3. **Stack**: Next.js 15 · TypeScript strict · PostgreSQL (Supabase) · Prisma · tRPC · NextAuth v5 · Upstash Redis · Gemini 1.5 Flash
 4. `strict: true` — no `@ts-nocheck`, no `ignoreBuildErrors`, no implicit `any`
-5. **Zero recurring cost** — only free/open-source tools, no Firebase/Supabase/paid cloud
+5. **Zero recurring cost** — Supabase free tier (PostgreSQL + Auth + Storage), Gemini 1.5 Flash free tier (AI), Upstash Redis free tier, Resend free tier. No self-hosted Docker services required for dev — use hosted free tiers.
 6. Every tRPC procedure: `protectedProcedure` + RBAC role check + `clinic_id` scope + `auditLog()`
 7. All PHI: AES-256-GCM encrypted at rest, never in logs or error messages
 8. Auth tokens: memory + HttpOnly cookie only — never `localStorage`
@@ -46,20 +46,25 @@
 - **Shadow formula**: `6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF`
 
 ## Phase 1 Checklist
-- [ ] FS-001: Auth system (NextAuth v5, JWT + Redis refresh, MFA, rate limiting)
-- [ ] FS-002: RBAC middleware (6 roles, protectedProcedure, clinic_id scope)
-- [ ] INFRA-001: PostgreSQL setup (Prisma schema, all 8 tables, RLS policies, seed)
-- [ ] INFRA-002: Docker Compose (postgres, redis, minio, meilisearch, ollama, pgbouncer, prometheus, grafana)
-- [ ] INFRA-003: OWASP hardening (security headers, CSP, rate limiting, input validation)
-- [ ] INFRA-004: CI/CD pipeline (GitHub Actions — lint, typecheck, test, build)
-- [ ] INFRA-005: README rewrite (showcase quality, architecture diagram, screenshots)
+- [x] FS-001: Auth system (NextAuth v5, JWT + Redis refresh, MFA, rate limiting)
+- [x] FS-002: RBAC middleware (6 roles, protectedProcedure, clinic_id scope)
+- [x] INFRA-001: PostgreSQL setup (Prisma schema, Supabase linking, seed)
+- [x] INFRA-002: Cloud Infrastructure Migration (Supabase, Upstash, Gemini, Resend)
+- [x] INFRA-003: OWASP hardening (security headers, CSP, rate limiting, input validation)
+- [x] INFRA-004: CI/CD pipeline (GitHub Actions — lint, typecheck, test, build)
+- [x] INFRA-005: README rewrite (showcase quality, architecture diagram, screenshots)
+
+## Phase 2 & 3 Checklist (Completed)
+- [x] FS-003: Patient Management (Database schema, tRPC routers, strict RBAC isolation)
+- [x] FS-004: Clinical Encounters & Records (AES-256-GCM encrypted notes)
+- [x] FS-005: AI Clinical Decision Support (Gemini 1.5 Flash / Ollama integration)
 
 ## Environment Variables (required)
-`DATABASE_URL`, `REDIS_URL`, `NEXTAUTH_SECRET`, `ACCESS_TOKEN_SECRET`,
-`RECORD_ENCRYPTION_KEY` (exactly 32 bytes), `MINIO_ROOT_USER`,
-`MINIO_ROOT_PASSWORD`, `MEILISEARCH_API_KEY`, `OLLAMA_BASE_URL`,
-`OLLAMA_MODEL` (default: `llama3.2:3b`), `SMTP_HOST`, `SMTP_PASSWORD`,
-`NEXTAUTH_URL`
+`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`,
+`AUTH_SECRET`, `AUTH_URL`, `AUTH_TRUST_HOST`, `ACCESS_TOKEN_SECRET`,
+`RECORD_ENCRYPTION_KEY` (exactly 32 bytes), `GEMINI_API_KEY`, `GEMINI_MODEL`,
+`RESEND_API_KEY`, `EMAIL_FROM`, `SENTRY_DSN`
 
 ## Folder Structure Target
 
