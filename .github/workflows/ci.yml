@@ -43,3 +43,4 @@ jobs:
         AUTH_SECRET: "dummy_secret_for_build"
         RECORD_ENCRYPTION_KEY: "OEZhTEJrdVlBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
         GEMINI_API_KEY: "dummy"
+        ACCESS_TOKEN_SECRET: "dummy"
