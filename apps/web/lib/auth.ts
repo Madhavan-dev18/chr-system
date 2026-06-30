@@ -22,6 +22,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       credentials: {
         email: {},
         password: {},
+        mfaToken: {},
       },
       authorize: async (credentials) => {
         if (!credentials?.email || typeof credentials.email !== 'string') return null;
@@ -95,7 +96,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        // 5. Success
+        // 5. MFA Check
+        if (user.mfaEnabled) {
+          if (!credentials?.mfaToken || typeof credentials.mfaToken !== 'string') {
+            // NextAuth doesn't natively support multi-step in standard credentials without a workaround.
+            // Returning a specific error allows the frontend to show the MFA input.
+            throw new CredentialsSignin('mfa_required');
+          }
+
+          const { authenticator } = require('otplib');
+          const { decryptMfaSecret } = await import('./crypto');
+
+          if (!user.mfaSecret) {
+            throw new CredentialsSignin('mfa_configuration_error');
+          }
+
+          const secretBlob = user.mfaSecret;
+          const iv = Buffer.from(secretBlob.subarray(0, 12));
+          const authTag = Buffer.from(secretBlob.subarray(12, 28));
+          const ciphertext = Buffer.from(secretBlob.subarray(28));
+
+          const secret = decryptMfaSecret(ciphertext, iv, authTag);
+          const isValid = authenticator.verify({ token: credentials.mfaToken, secret });
+
+          if (!isValid) {
+            throw new CredentialsSignin('invalid_mfa_token');
+          }
+        }
+
+        // 6. Success
         await prisma.user.update({
           where: { id: user.id },
           data: {

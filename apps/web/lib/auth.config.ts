@@ -3,7 +3,7 @@ import { Role } from '@chr/db';
 
 export const authConfig = {
   providers: [],
-  session: { strategy: 'jwt', maxAge: 15 * 60 },
+  session: { strategy: 'jwt', maxAge: 4 * 60 * 60 },
   pages: { signIn: '/login' },
   cookies: {
     sessionToken: {
