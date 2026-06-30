@@ -1,6 +1,6 @@
-import { PrismaClient, Role, AuditAction } from '@prisma/client';
+import { PrismaClient, Role, AuditAction, LabStatus } from '@prisma/client';
 
 export * from '@prisma/client';
-export { PrismaClient, Role, AuditAction };
+export { PrismaClient, Role, AuditAction, LabStatus };
 
 // trigger ts reload

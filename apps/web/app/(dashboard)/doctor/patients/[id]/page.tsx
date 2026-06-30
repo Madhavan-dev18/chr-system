@@ -1,8 +1,13 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { PatientChartClient } from './PatientChartClient';
 
-export default async function PatientChartPage({ params }: { params: Promise<{ id: string }> }) {
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function DoctorPatientDetail({ params }: PageProps) {
   const session = await auth();
   
   if (session?.user?.role !== 'DOCTOR') {
@@ -15,15 +20,7 @@ export default async function PatientChartPage({ params }: { params: Promise<{ i
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6">
-      <header className="flex justify-between items-center mb-8">
-        <div>
-          <Link href="/doctor/patients" className="text-[#4A90D9] text-sm font-semibold hover:underline mb-2 inline-block">
-            &larr; Back to Roster
-          </Link>
-          <h1 className="text-3xl font-bold text-[#1E2035] tracking-tight">John Doe</h1>
-          <p className="text-[#9898B8] mt-1 text-sm font-medium font-mono">{mrn} • 46 yo Male • Blood Type O+</p>
-        </div>
-      </header>
+      {/* Header and Vitals handled by Client Component below */}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
@@ -121,7 +118,9 @@ export default async function PatientChartPage({ params }: { params: Promise<{ i
           >
             <h2 className="text-xl font-bold text-[#1E2035] mb-6">Chart History</h2>
             
-            <div className="space-y-4 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#C8CAD4] before:to-transparent">
+            <PatientChartClient mrn={mrn} />
+
+            <div className="space-y-4 mt-8 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#C8CAD4] before:to-transparent">
               {/* Timeline Item */}
               <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
                 <div className="flex items-center justify-center w-4 h-4 rounded-full border border-white bg-[#FF6B35] shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2"></div>

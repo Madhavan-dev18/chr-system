@@ -42,6 +42,10 @@ model Clinic {
   patients       Patient[]
   vitals         Vitals[]
   medicalRecords MedicalRecord[]
+  appointments   Appointment[]
+  prescriptions  Prescription[]
+  labResults     LabResult[]
+  notifications  Notification[]
 
   @@map("clinics")
 }
@@ -71,6 +75,11 @@ model User {
   patientsAsDoctor Patient[] @relation(name: "AssignedDoctor")
   patientsAsNurse Patient[] @relation(name: "AssignedNurse")
   recordedVitals Vitals[]
+  doctorAppointments Appointment[] @relation(name: "DoctorAppointments")
+  doctorPrescriptions Prescription[] @relation(name: "DoctorPrescriptions")
+  orderedLabs    LabResult[] @relation(name: "OrderedLabs")
+  resultedLabs   LabResult[] @relation(name: "ResultedLabs")
+  notifications  Notification[]
   authoredRecords MedicalRecord[]
 
   @@index([clinicId, deletedAt])
@@ -129,6 +138,9 @@ model Patient {
 
   vitals           Vitals[]
   medicalRecords   MedicalRecord[]
+  appointments     Appointment[]
+  prescriptions    Prescription[]
+  labResults       LabResult[]
 
   createdAt        DateTime  @default(now()) @db.Timestamptz
   updatedAt        DateTime  @updatedAt @db.Timestamptz
@@ -202,3 +214,163 @@ model MedicalRecord {
   @@index([clinicId, deletedAt])
   @@map("medical_records")
 }
+
+// ── FS-004 Appointment Scheduling ──────────────────────────────────
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentType {
+  CONSULTATION
+  FOLLOW_UP
+  EMERGENCY
+  LAB_REVIEW
+  PROCEDURE
+}
+
+model Appointment {
+  id               String            @id @default(uuid()) @db.Uuid
+
+  patientId        String            @db.Uuid
+  patient          Patient           @relation(fields: [patientId], references: [id])
+
+  doctorId         String            @db.Uuid
+  doctor           User              @relation(name: "DoctorAppointments", fields: [doctorId], references: [id])
+
+  scheduledStart   DateTime          @db.Timestamptz
+  scheduledEnd     DateTime          @db.Timestamptz
+
+  status           AppointmentStatus @default(PENDING)
+  type             AppointmentType   @default(CONSULTATION)
+  reason           String?
+  notes            String?
+  cancelReason     String?
+
+  clinicId         String            @db.Uuid
+  clinic           Clinic            @relation(fields: [clinicId], references: [id])
+
+  createdAt        DateTime          @default(now()) @db.Timestamptz
+  updatedAt        DateTime          @updatedAt @db.Timestamptz
+
+  @@index([doctorId, scheduledStart])
+  @@index([patientId, scheduledStart])
+  @@index([clinicId, status])
+  @@map("appointments")
+}
+
+// ── FS-007 Prescription Management ─────────────────────────────────
+
+model Prescription {
+  id               String    @id @default(uuid()) @db.Uuid
+
+  patientId        String    @db.Uuid
+  patient          Patient   @relation(fields: [patientId], references: [id])
+
+  doctorId         String    @db.Uuid
+  doctor           User      @relation(name: "DoctorPrescriptions", fields: [doctorId], references: [id])
+
+  medicationName   String
+  dosage           String
+  unit             String
+  frequency        String
+  route            String?
+  startDate        DateTime  @db.Date
+  endDate          DateTime? @db.Date
+  isActive         Boolean   @default(true)
+  notes            String?
+  icd10Code        String?
+
+  discontinuedAt   DateTime? @db.Timestamptz
+  discontinuedById String?   @db.Uuid
+
+  clinicId         String    @db.Uuid
+  clinic           Clinic    @relation(fields: [clinicId], references: [id])
+
+  createdAt        DateTime  @default(now()) @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @db.Timestamptz
+
+  @@index([patientId, isActive])
+  @@index([clinicId])
+  @@map("prescriptions")
+}
+
+// ── FS-008 Lab Results Management ──────────────────────────────────
+
+enum LabStatus {
+  PENDING
+  RESULTED
+  REVIEWED
+}
+
+model LabResult {
+  id                 String    @id @default(uuid()) @db.Uuid
+
+  patientId          String    @db.Uuid
+  patient            Patient   @relation(fields: [patientId], references: [id])
+
+  testName           String
+  resultValue        String?   // Numeric or text result
+  unit               String?
+  referenceRangeLow  Float?
+  referenceRangeHigh Float?
+  isAbnormal         Boolean   @default(false)
+  status             LabStatus @default(PENDING)
+
+  orderedById        String    @db.Uuid
+  orderedBy          User      @relation(name: "OrderedLabs", fields: [orderedById], references: [id])
+
+  resultedById       String?   @db.Uuid
+  resultedBy         User?     @relation(name: "ResultedLabs", fields: [resultedById], references: [id])
+
+  orderedAt          DateTime  @default(now()) @db.Timestamptz
+  resultedAt         DateTime? @db.Timestamptz
+  reviewedAt         DateTime? @db.Timestamptz
+
+  clinicId           String    @db.Uuid
+  clinic             Clinic    @relation(fields: [clinicId], references: [id])
+
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @db.Timestamptz
+
+  @@index([patientId, orderedAt(sort: Desc)])
+  @@index([clinicId, status])
+  @@map("lab_results")
+}
+
+// ── FS-012 Notifications ───────────────────────────────────────────
+
+enum NotificationType {
+  VITAL_ALERT
+  LAB_ABNORMAL
+  APPOINTMENT_REMINDER
+  ROLE_CHANGE
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id])
+
+  title     String
+  message   String
+  type      NotificationType @default(SYSTEM)
+  isRead    Boolean          @default(false)
+  link      String?
+
+  clinicId  String?          @db.Uuid
+  clinic    Clinic?          @relation(fields: [clinicId], references: [id])
+
+  createdAt DateTime         @default(now()) @db.Timestamptz
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@index([clinicId])
+  @@map("notifications")
+}
+

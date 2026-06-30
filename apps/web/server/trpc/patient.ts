@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
 import { auditLog } from '@/lib/audit';
+import { Prisma } from '@chr/db';
 
 // Input Schemas
 const CreatePatientSchema = z.object({
@@ -24,11 +25,11 @@ export const patientRouter = createTRPCRouter({
   create: clinicScopedProcedure
     .input(CreatePatientSchema)
     .mutation(async ({ ctx, input }) => {
-      // Only Admin can create patients
-      if (ctx.session.user.role !== 'ADMIN') {
+      // Admin and Receptionist can create patients
+      if (ctx.session.user.role !== 'ADMIN' && ctx.session.user.role !== 'RECEPTIONIST') {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'Only Administrators can register new patients.',
+          message: 'Only Administrators and Receptionists can register new patients.',
         });
       }
 
@@ -61,13 +62,22 @@ export const patientRouter = createTRPCRouter({
     }),
 
   list: clinicScopedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({ search: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
       const { role, id: userId, clinicId } = ctx.session.user;
 
       // Base query scoped to clinic and active records
-      let whereClause: any = {
+      const whereClause: Prisma.PatientWhereInput = {
         clinicId,
         deletedAt: null,
+        ...(input?.search ? {
+          OR: [
+            { firstName: { contains: input.search, mode: 'insensitive' } },
+            { lastName: { contains: input.search, mode: 'insensitive' } },
+            { mrn: { contains: input.search, mode: 'insensitive' } },
+            { email: { contains: input.search, mode: 'insensitive' } },
+          ]
+        } : {})
       };
 
       // RBAC filtering
@@ -75,14 +85,22 @@ export const patientRouter = createTRPCRouter({
         whereClause.assignedDoctorId = userId;
       } else if (role === 'NURSE') {
         whereClause.assignedNurseId = userId;
-      } else if (role !== 'ADMIN') {
-        // Receptionist, Lab Tech, etc., might need different access, but for now stick to strict bounds
+      } else if (role !== 'ADMIN' && role !== 'RECEPTIONIST') {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized role for listing patients.' });
       }
 
       const patients = await ctx.prisma.patient.findMany({
         where: whereClause,
         orderBy: { createdAt: 'desc' },
+        include: {
+          vitals: {
+            orderBy: { recordedAt: 'desc' },
+            take: 1,
+          },
+          assignedDoctor: {
+            select: { email: true }, // Ideally would be name, but User model only has email currently
+          }
+        }
       });
 
       return patients;

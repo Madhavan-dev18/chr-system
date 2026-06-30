@@ -17,19 +17,20 @@ export default function LoginPage() {
     setIsPending(true);
 
     const formData = new FormData(e.currentTarget);
-    const mfaToken = formData.get('mfaToken') as string | null;
+    const mfaTokenRaw = formData.get('mfaToken');
+    const mfaToken = mfaTokenRaw ? mfaTokenRaw.toString() : undefined;
     
     let email = credentials.email;
     let password = credentials.password;
 
     if (!mfaRequired) {
-      email = formData.get('email') as string;
-      password = formData.get('password') as string;
+      email = formData.get('email')?.toString() || '';
+      password = formData.get('password')?.toString() || '';
       setCredentials({ email, password });
     }
 
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         email,
         password,
         redirect: false,
@@ -39,7 +40,7 @@ export default function LoginPage() {
         payload.mfaToken = mfaToken;
       }
 
-      const res: any = await signIn('credentials', payload);
+      const res = (await signIn('credentials', payload)) as unknown as { error?: string; ok?: boolean; url?: string | null };
 
       if (res?.error) {
         if (res.error === 'rate_limit_exceeded') {

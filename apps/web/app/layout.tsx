@@ -6,6 +6,8 @@ export const metadata: Metadata = {
   description: 'Production-grade, HIPAA-aligned EHR platform',
 };
 
+import { TRPCProvider } from '@/components/providers/TRPCProvider';
+
 export default function RootLayout({
   children,
 }: {
@@ -14,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased bg-background text-foreground">
-        {children}
+        <TRPCProvider>
+          {children}
+        </TRPCProvider>
       </body>
     </html>
   );

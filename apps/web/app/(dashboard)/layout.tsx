@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { TopBar } from '@/components/layout/TopBar';
 
 export default async function DashboardLayout({
   children,
@@ -14,16 +16,21 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  // We could also do layout-level role checks here, but since the (dashboard) 
-  // is shared across all 6 roles, we just ensure they are authenticated.
-  // The specific sub-folders (e.g. /admin, /doctor) will have their own page-level or layout-level checks.
+  // Extract user details
+  const userName = session.user.name || session.user.email?.split('@')[0] || 'User';
+  const userRole = session.user.role;
 
   return (
-    <div className="flex h-screen bg-[#EEF0F5]">
-      {/* Sidebar navigation goes here */}
-      <main className="flex-1 overflow-y-auto">
-        {children}
-      </main>
+    <div className="flex h-screen bg-[#EEF0F5] overflow-hidden">
+      <Sidebar userRole={userRole} />
+      
+      <div className="flex-1 flex flex-col min-w-0">
+        <TopBar userName={userName} userRole={userRole} />
+        
+        <main className="flex-1 overflow-y-auto bg-[#EEF0F5] rounded-tl-3xl shadow-[inset_6px_6px_12px_#C8CAD4]">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
