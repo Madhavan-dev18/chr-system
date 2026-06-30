@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -27,7 +28,7 @@ export const vitalsRouter = createTRPCRouter({
       }
 
       // Verify patient exists and user has access
-      const patient = await ctx.prisma.patient.findUnique({
+      const patient = await prisma.patient.findUnique({
         where: { id: input.patientId },
       });
 
@@ -43,7 +44,7 @@ export const vitalsRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
       }
 
-      const vitals = await ctx.prisma.vitals.create({
+      const vitals = await prisma.vitals.create({
         data: {
           ...input,
           recordedById: userId,
@@ -51,7 +52,7 @@ export const vitalsRouter = createTRPCRouter({
         },
       });
 
-      await auditLog(ctx.prisma, {
+      await auditLog(prisma, {
         userId,
         clinicId,
         action: 'CREATE',
@@ -71,7 +72,7 @@ export const vitalsRouter = createTRPCRouter({
       const { role, id: userId, clinicId } = ctx.session.user;
 
       // Access checks
-      const patient = await ctx.prisma.patient.findUnique({
+      const patient = await prisma.patient.findUnique({
         where: { id: input.patientId },
       });
 
@@ -91,12 +92,12 @@ export const vitalsRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'You can only view your own vitals.' });
       }
 
-      const vitalsList = await ctx.prisma.vitals.findMany({
+      const vitalsList = await prisma.vitals.findMany({
         where: { patientId: input.patientId },
         orderBy: { recordedAt: 'desc' },
       });
 
-      await auditLog(ctx.prisma, {
+      await auditLog(prisma, {
         userId,
         clinicId,
         action: 'VIEW',
@@ -110,3 +111,4 @@ export const vitalsRouter = createTRPCRouter({
       return vitalsList;
     }),
 });
+

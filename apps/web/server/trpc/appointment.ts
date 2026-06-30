@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { AppointmentStatus, AppointmentType, Role } from '@chr/db';
@@ -17,7 +18,7 @@ export const appointmentRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       // Patients can only see their own appointments
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await ctx.prisma.patient.findUnique({
+        const patientRecord = await prisma.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (!patientRecord) return [];
@@ -35,7 +36,7 @@ export const appointmentRouter = createTRPCRouter({
         if (input.endDate) where.scheduledStart.lte = new Date(input.endDate);
       }
 
-      return ctx.prisma.appointment.findMany({
+      return prisma.appointment.findMany({
         where,
         include: {
           patient: { select: { id: true, firstName: true, lastName: true, mrn: true, dob: true } },
@@ -49,7 +50,7 @@ export const appointmentRouter = createTRPCRouter({
   getById: clinicScopedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const appointment = await ctx.prisma.appointment.findUnique({
+      const appointment = await prisma.appointment.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId },
         include: {
           patient: true,
@@ -61,7 +62,7 @@ export const appointmentRouter = createTRPCRouter({
 
       // Enforce PATIENT privacy
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await ctx.prisma.patient.findUnique({
+        const patientRecord = await prisma.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (appointment.patientId !== patientRecord?.id) {
@@ -83,41 +84,41 @@ export const appointmentRouter = createTRPCRouter({
       reason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // In a real production system, use Prisma transactions to prevent double booking.
-      // For this spec, we simulate optimistic locking.
-      
-      const overlapping = await ctx.prisma.appointment.findFirst({
-        where: {
-          doctorId: input.doctorId,
-          status: { in: ['PENDING', 'CONFIRMED'] },
-          clinicId: ctx.session.user.clinicId,
-          OR: [
-            {
-              scheduledStart: { lt: new Date(input.scheduledEnd) },
-              scheduledEnd: { gt: new Date(input.scheduledStart) },
-            }
-          ]
-        }
-      });
-
-      if (overlapping) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This time slot is already booked for the selected doctor.',
+      // Use Prisma transactions to prevent double booking race conditions.
+      return prisma.$transaction(async (tx) => {
+        const overlapping = await tx.appointment.findFirst({
+          where: {
+            doctorId: input.doctorId,
+            status: { in: ['PENDING', 'CONFIRMED'] },
+            clinicId: ctx.session.user.clinicId,
+            OR: [
+              {
+                scheduledStart: { lt: new Date(input.scheduledEnd) },
+                scheduledEnd: { gt: new Date(input.scheduledStart) },
+              }
+            ]
+          }
         });
-      }
 
-      return ctx.prisma.appointment.create({
-        data: {
-          patientId: input.patientId,
-          doctorId: input.doctorId,
-          clinicId: ctx.session.user.clinicId,
-          scheduledStart: new Date(input.scheduledStart),
-          scheduledEnd: new Date(input.scheduledEnd),
-          type: input.type,
-          reason: input.reason,
-          status: 'PENDING',
+        if (overlapping) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'This time slot is already booked for the selected doctor.',
+          });
         }
+
+        return tx.appointment.create({
+          data: {
+            patientId: input.patientId,
+            doctorId: input.doctorId,
+            clinicId: ctx.session.user.clinicId,
+            scheduledStart: new Date(input.scheduledStart),
+            scheduledEnd: new Date(input.scheduledEnd),
+            type: input.type,
+            reason: input.reason,
+            status: 'PENDING',
+          }
+        });
       });
     }),
 
@@ -129,7 +130,7 @@ export const appointmentRouter = createTRPCRouter({
       cancelReason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const appointment = await ctx.prisma.appointment.findUnique({
+      const appointment = await prisma.appointment.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId }
       });
 
@@ -140,7 +141,7 @@ export const appointmentRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Patients can only cancel appointments.' });
       }
 
-      return ctx.prisma.appointment.update({
+      return prisma.appointment.update({
         where: { id: input.id },
         data: {
           status: input.status,
@@ -149,3 +150,4 @@ export const appointmentRouter = createTRPCRouter({
       });
     }),
 });
+

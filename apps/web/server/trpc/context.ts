@@ -1,6 +1,4 @@
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { redis } from '@/lib/redis';
 import { uuidv7 } from 'uuidv7';
 
 export const createTRPCContext = async (opts: { headers: Headers }) => {
@@ -13,8 +11,6 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 
   return {
     session,
-    prisma,
-    redis,
     ip,
     userAgent,
     requestId,

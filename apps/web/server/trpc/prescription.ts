@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -13,7 +14,7 @@ export const prescriptionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       // Enforce PATIENT privacy
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await ctx.prisma.patient.findUnique({
+        const patientRecord = await prisma.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (input.patientId !== patientRecord?.id) {
@@ -30,7 +31,7 @@ export const prescriptionRouter = createTRPCRouter({
         where.isActive = true;
       }
 
-      return ctx.prisma.prescription.findMany({
+      return prisma.prescription.findMany({
         where,
         include: {
           doctor: { select: { id: true, email: true } },
@@ -60,7 +61,7 @@ export const prescriptionRouter = createTRPCRouter({
       }
 
       // Check allergies
-      const patient = await ctx.prisma.patient.findUnique({
+      const patient = await prisma.patient.findUnique({
         where: { id: input.patientId, clinicId: ctx.session.user.clinicId }
       });
 
@@ -77,7 +78,7 @@ export const prescriptionRouter = createTRPCRouter({
         });
       }
 
-      return ctx.prisma.prescription.create({
+      return prisma.prescription.create({
         data: {
           patientId: input.patientId,
           doctorId: ctx.session.user.id,
@@ -104,13 +105,13 @@ export const prescriptionRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Doctors can discontinue prescriptions.' });
       }
 
-      const prescription = await ctx.prisma.prescription.findUnique({
+      const prescription = await prisma.prescription.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId }
       });
 
       if (!prescription) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      return ctx.prisma.prescription.update({
+      return prisma.prescription.update({
         where: { id: input.id },
         data: {
           isActive: false,
@@ -120,3 +121,4 @@ export const prescriptionRouter = createTRPCRouter({
       });
     }),
 });
+

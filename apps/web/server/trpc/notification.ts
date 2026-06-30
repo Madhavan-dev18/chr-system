@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, protectedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -16,7 +17,7 @@ export const notificationRouter = createTRPCRouter({
         ...(input.unreadOnly ? { isRead: false } : {})
       };
 
-      return ctx.prisma.notification.findMany({
+      return prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         take: input.limit,
@@ -26,7 +27,7 @@ export const notificationRouter = createTRPCRouter({
   // Mark all as read
   markAllAsRead: protectedProcedure
     .mutation(async ({ ctx }) => {
-      return ctx.prisma.notification.updateMany({
+      return prisma.notification.updateMany({
         where: { userId: ctx.session.user.id, isRead: false },
         data: { isRead: true },
       });
@@ -36,7 +37,7 @@ export const notificationRouter = createTRPCRouter({
   markAsRead: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const notification = await ctx.prisma.notification.findUnique({
+      const notification = await prisma.notification.findUnique({
         where: { id: input.id }
       });
 
@@ -44,9 +45,10 @@ export const notificationRouter = createTRPCRouter({
         throw new TRPCError({ code: 'NOT_FOUND' });
       }
 
-      return ctx.prisma.notification.update({
+      return prisma.notification.update({
         where: { id: input.id },
         data: { isRead: true },
       });
     }),
 });
+

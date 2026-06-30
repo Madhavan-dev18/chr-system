@@ -1,8 +1,10 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
 import { auditLog } from '@/lib/audit';
 import { analyzeSymptoms } from '@/lib/ai/gemini';
+import { scrubPHI } from '@/lib/ai/phi-scrubber';
 
 export const aiRouter = createTRPCRouter({
   getDifferential: clinicScopedProcedure
@@ -18,7 +20,7 @@ export const aiRouter = createTRPCRouter({
       }
 
       // Log the AI invocation BEFORE calling the external service (for accounting/audit)
-      await auditLog(ctx.prisma, {
+      await auditLog(prisma, {
         userId,
         clinicId,
         action: 'AI_CALL',
@@ -29,7 +31,8 @@ export const aiRouter = createTRPCRouter({
       });
 
       try {
-        const result = await analyzeSymptoms(input.clinicalNote);
+        const scrubbedNote = scrubPHI(input.clinicalNote);
+        const result = await analyzeSymptoms(scrubbedNote);
         return result;
       } catch (error) {
         // Fallback gracefully if Gemini is down or errors
@@ -40,3 +43,4 @@ export const aiRouter = createTRPCRouter({
       }
     }),
 });
+

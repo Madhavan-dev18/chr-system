@@ -5,7 +5,7 @@ import { trpc } from '@/lib/trpc/client';
 import { FlaskConical, CheckCircle, Clock } from 'lucide-react';
 
 export default function LabOrders() {
-  const [selectedOrderId, setSelectedOrderId] = useState<string>('');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [resultValue, setResultValue] = useState('');
   const [unit, setUnit] = useState('');
   const [referenceRange, setReferenceRange] = useState('');

@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -38,7 +39,7 @@ export const patientRouter = createTRPCRouter({
       const randomHex = Math.floor(Math.random() * 65536).toString(16).padStart(4, '0').toUpperCase();
       const mrn = `MRN-${dateStr}-${randomHex}`;
 
-      const patient = await ctx.prisma.patient.create({
+      const patient = await prisma.patient.create({
         data: {
           ...input,
           dob: new Date(input.dob),
@@ -47,7 +48,7 @@ export const patientRouter = createTRPCRouter({
         },
       });
 
-      await auditLog(ctx.prisma, {
+      await auditLog(prisma, {
         userId: ctx.session.user.id,
         clinicId: ctx.session.user.clinicId,
         action: 'CREATE',
@@ -89,7 +90,7 @@ export const patientRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized role for listing patients.' });
       }
 
-      const patients = await ctx.prisma.patient.findMany({
+      const patients = await prisma.patient.findMany({
         where: whereClause,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -111,7 +112,7 @@ export const patientRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const { role, id: userId, clinicId } = ctx.session.user;
 
-      const patient = await ctx.prisma.patient.findUnique({
+      const patient = await prisma.patient.findUnique({
         where: { id: input.id },
       });
 
@@ -127,7 +128,7 @@ export const patientRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
       }
 
-      await auditLog(ctx.prisma, {
+      await auditLog(prisma, {
         userId: ctx.session.user.id,
         clinicId,
         action: 'VIEW',
@@ -149,7 +150,7 @@ export const patientRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only patients can access their own profile.' });
       }
 
-      const patient = await ctx.prisma.patient.findUnique({
+      const patient = await prisma.patient.findUnique({
         where: { userId },
       });
 
@@ -160,3 +161,4 @@ export const patientRouter = createTRPCRouter({
       return patient;
     }),
 });
+

@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { Role } from '@chr/db';
@@ -19,10 +20,10 @@ export const adminRouter = createTRPCRouter({
       const clinicId = ctx.session.user.clinicId;
 
       const [totalUsers, totalPatients, totalAppointments, totalLabs] = await Promise.all([
-        ctx.prisma.user.count({ where: { clinicId } }),
-        ctx.prisma.patient.count({ where: { clinicId } }),
-        ctx.prisma.appointment.count({ where: { clinicId } }),
-        ctx.prisma.labResult.count({ where: { clinicId } }),
+        prisma.user.count({ where: { clinicId } }),
+        prisma.patient.count({ where: { clinicId } }),
+        prisma.appointment.count({ where: { clinicId } }),
+        prisma.labResult.count({ where: { clinicId } }),
       ]);
 
       return {
@@ -45,14 +46,14 @@ export const adminRouter = createTRPCRouter({
       if (input.action) where.action = input.action;
 
       const [logs, total] = await Promise.all([
-        ctx.prisma.auditLog.findMany({
+        prisma.auditLog.findMany({
           where,
           include: { user: { select: { email: true, role: true } } },
           orderBy: { timestamp: 'desc' },
           take: input.limit,
           skip: input.offset,
         }),
-        ctx.prisma.auditLog.count({ where })
+        prisma.auditLog.count({ where })
       ]);
 
       return { logs, total };
@@ -61,7 +62,7 @@ export const adminRouter = createTRPCRouter({
   // Manage Users
   listUsers: adminProcedure
     .query(async ({ ctx }) => {
-      return ctx.prisma.user.findMany({
+      return prisma.user.findMany({
         where: { clinicId: ctx.session.user.clinicId },
         select: { id: true, email: true, role: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
@@ -79,9 +80,10 @@ export const adminRouter = createTRPCRouter({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot change your own role.' });
       }
 
-      return ctx.prisma.user.update({
+      return prisma.user.update({
         where: { id: input.userId, clinicId: ctx.session.user.clinicId },
         data: { role: input.role },
       });
     }),
 });
+
