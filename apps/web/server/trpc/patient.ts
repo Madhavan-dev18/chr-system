@@ -48,18 +48,20 @@ export const patientRouter = createTRPCRouter({
           },
         });
 
-        await auditLog(tx as any, {
-          userId: ctx.session.user.id,
-          clinicId: ctx.session.user.clinicId,
-          action: 'CREATE',
-          resource: 'Patient',
-          resourceId: createdPatient.id,
-          ipAddress: ctx.ip,
-          userAgent: ctx.userAgent,
-          requestId: ctx.requestId,
-        });
-
         return createdPatient;
+      });
+
+      // Execute audit log after transaction commits to prevent "Slow-Log" transaction bloat
+      // Fallback handles errors without failing the UI
+      await auditLog(ctx.db, {
+        userId: ctx.session.user.id,
+        clinicId: ctx.session.user.clinicId,
+        action: 'CREATE',
+        resource: 'Patient',
+        resourceId: patient.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
       });
 
       return patient;

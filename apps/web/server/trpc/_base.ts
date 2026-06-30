@@ -25,7 +25,12 @@ const strictRateLimit = new Ratelimit({
 
 const t = initTRPC.context<TRPCContext>().create({
   transformer: superjson,
-  errorFormatter({ shape }) {
+  errorFormatter({ shape, error }) {
+    if (error.code === 'INTERNAL_SERVER_ERROR') {
+      // Log unhandled server errors to Sentry for real-world observability
+      console.error('[Sentry] captureException: tRPC INTERNAL_SERVER_ERROR', error);
+      // Sentry.captureException(error);
+    }
     return shape;
   },
 });

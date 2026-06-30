@@ -33,14 +33,26 @@ export async function auditLog(
       },
     });
   } catch (error) {
-    // Audit logging MUST NOT fail the main transaction if possible,
-    // but we need to alert loudly.
-    logger.error({ err: error, params }, 'FAILED TO WRITE AUDIT LOG - THIS IS A SEVERE SECURITY EVENT');
+    logger.error({ err: error, params }, 'FAILED TO WRITE AUDIT LOG TO DB - ATTEMPTING REDIS DLQ FALLBACK');
     
-    // If strict mode is enforced, we might throw here in a real production environment.
-    // For Phase 1, logging the error is sufficient.
-    if (env.NODE_ENV === 'production') {
-      throw new Error('Audit log failed to persist');
+    // Fallback to Upstash Redis as a Dead Letter Queue (DLQ)
+    try {
+      const { redis } = await import('./redis');
+      const dlqKey = `audit:dlq:${Date.now()}:${Math.random().toString(36).substring(7)}`;
+      await redis.set(dlqKey, JSON.stringify({ ...params, error: String(error) }));
+      
+      logger.info({ dlqKey }, 'Audit log successfully persisted to Redis DLQ');
+    } catch (redisError) {
+      // Both DB and Redis failed. This is a severe observability failure.
+      // We log it, and an external system like Sentry must capture this.
+      logger.error({ err: redisError, params }, 'CRITICAL: AUDIT LOG COMPLETELY LOST (DB & REDIS FAILED)');
+      
+      // In a real Sentry setup:
+      // Sentry.captureException(new Error('Audit Log Lost'), { extra: params });
+      console.error('[Sentry] captureException: Audit Log completely lost', redisError);
     }
+    
+    // We intentionally DO NOT throw here to preserve clinical availability.
+    // The "Slow-Log" DoS is mitigated by making this a soft-fail.
   }
 }

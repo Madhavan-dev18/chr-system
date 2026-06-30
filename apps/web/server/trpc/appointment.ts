@@ -84,7 +84,7 @@ export const appointmentRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // Use Prisma transactions to prevent double booking race conditions.
-      return ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx) => {
         // Raw SQL for row-level locking on the doctor's existing appointments
         // to serialize overlapping checks.
         await tx.$executeRaw`
@@ -129,21 +129,22 @@ export const appointmentRouter = createTRPCRouter({
           }
         });
 
-        // Ensure audit log is part of the transaction
-        const { auditLog } = await import('@/lib/audit');
-        await auditLog(tx as any, {
-          userId: ctx.session.user.id,
-          clinicId: ctx.session.user.clinicId,
-          action: 'CREATE',
-          resource: 'Appointment',
-          resourceId: appointment.id,
-          ipAddress: ctx.ip,
-          userAgent: ctx.userAgent,
-          requestId: ctx.requestId,
-        });
-
         return appointment;
       });
+
+      const { auditLog } = await import('@/lib/audit');
+      await auditLog(ctx.db, {
+        userId: ctx.session.user.id,
+        clinicId: ctx.session.user.clinicId,
+        action: 'CREATE',
+        resource: 'Appointment',
+        resourceId: result.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+      });
+
+      return result;
     }),
 
   // Update status (Confirm, Cancel, Complete)
@@ -154,7 +155,7 @@ export const appointmentRouter = createTRPCRouter({
       cancelReason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx) => {
         // Raw SQL for row-level locking on the appointment to prevent concurrent updates
         const lockedRows = await tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM "Appointment"
@@ -186,21 +187,23 @@ export const appointmentRouter = createTRPCRouter({
           }
         });
 
-        const { auditLog } = await import('@/lib/audit');
-        await auditLog(tx as any, {
-          userId: ctx.session.user.id,
-          clinicId: ctx.session.user.clinicId,
-          action: 'UPDATE',
-          resource: 'Appointment',
-          resourceId: appointment.id,
-          ipAddress: ctx.ip,
-          userAgent: ctx.userAgent,
-          requestId: ctx.requestId,
-          metadata: { status: input.status }
-        });
-
         return updated;
       });
+
+      const { auditLog } = await import('@/lib/audit');
+      await auditLog(ctx.db, {
+        userId: ctx.session.user.id,
+        clinicId: ctx.session.user.clinicId,
+        action: 'UPDATE',
+        resource: 'Appointment',
+        resourceId: result.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+        metadata: { status: input.status }
+      });
+
+      return result;
     }),
 });
 

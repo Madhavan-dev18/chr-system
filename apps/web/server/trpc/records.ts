@@ -52,18 +52,18 @@ export const recordsRouter = createTRPCRouter({
           },
         });
 
-        await auditLog(tx as any, {
-          userId,
-          clinicId,
-          action: 'CREATE',
-          resource: 'MedicalRecord',
-          resourceId: createdRecord.id,
-          ipAddress: ctx.ip,
-          userAgent: ctx.userAgent,
-          requestId: ctx.requestId,
-        });
-
         return createdRecord;
+      });
+
+      await auditLog(ctx.db, {
+        userId,
+        clinicId,
+        action: 'CREATE',
+        resource: 'MedicalRecord',
+        resourceId: record.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
       });
 
       return { id: record.id, createdAt: record.createdAt };

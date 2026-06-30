@@ -78,7 +78,7 @@ export const prescriptionRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx) => {
         const prescription = await tx.prescription.create({
           data: {
             patientId: input.patientId,
@@ -97,19 +97,21 @@ export const prescriptionRouter = createTRPCRouter({
           }
         });
 
-        await auditLog(tx as any, {
-          userId: ctx.session.user.id,
-          clinicId: ctx.session.user.clinicId,
-          action: 'CREATE',
-          resource: 'Prescription',
-          resourceId: prescription.id,
-          ipAddress: ctx.ip,
-          userAgent: ctx.userAgent,
-          requestId: ctx.requestId,
-        });
-
         return prescription;
       });
+
+      await auditLog(ctx.db, {
+        userId: ctx.session.user.id,
+        clinicId: ctx.session.user.clinicId,
+        action: 'CREATE',
+        resource: 'Prescription',
+        resourceId: result.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+      });
+
+      return result;
     }),
 
   // Discontinue a prescription
@@ -126,7 +128,7 @@ export const prescriptionRouter = createTRPCRouter({
 
       if (!prescription) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      return ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx) => {
         const updated = await tx.prescription.update({
           where: { id: input.id },
           data: {
@@ -136,19 +138,21 @@ export const prescriptionRouter = createTRPCRouter({
           }
         });
 
-        await auditLog(tx as any, {
-          userId: ctx.session.user.id,
-          clinicId: ctx.session.user.clinicId,
-          action: 'DELETE',
-          resource: 'Prescription (Discontinue)',
-          resourceId: updated.id,
-          ipAddress: ctx.ip,
-          userAgent: ctx.userAgent,
-          requestId: ctx.requestId,
-        });
-
         return updated;
       });
+
+      await auditLog(ctx.db, {
+        userId: ctx.session.user.id,
+        clinicId: ctx.session.user.clinicId,
+        action: 'DELETE',
+        resource: 'Prescription (Discontinue)',
+        resourceId: result.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+      });
+
+      return result;
     }),
 });
 
