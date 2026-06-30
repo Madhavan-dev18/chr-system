@@ -57,7 +57,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
 
 export function Sidebar({ userRole }: { userRole: string }) {
   const pathname = usePathname();
-  const allowedItems = SIDEBAR_ITEMS.filter((item) => item.roles.includes(userRole));
+  const allowedItems = SIDEBAR_ITEMS.filter((item: any) => item.roles.includes(userRole));
 
   return (
     <aside 
@@ -78,7 +78,7 @@ export function Sidebar({ userRole }: { userRole: string }) {
       </div>
 
       <nav className="flex-1 space-y-2">
-        {allowedItems.map((item) => {
+        {allowedItems.map((item: any) => {
           const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
           const Icon = item.icon;
 

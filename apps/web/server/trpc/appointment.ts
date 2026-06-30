@@ -84,7 +84,7 @@ export const appointmentRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // Use Prisma transactions to prevent double booking race conditions.
-      const result = await ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx: any) => {
         // Raw SQL for row-level locking on the doctor's existing appointments
         // to serialize overlapping checks.
         await tx.$executeRaw`
@@ -155,7 +155,7 @@ export const appointmentRouter = createTRPCRouter({
       cancelReason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const result = await ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx: any) => {
         // Raw SQL for row-level locking on the appointment to prevent concurrent updates
         const lockedRows = await tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM "Appointment"

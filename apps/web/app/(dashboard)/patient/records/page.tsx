@@ -52,10 +52,10 @@ export default function PatientRecords() {
           </h2>
           <div className="rounded-3xl p-6" style={{ background: '#F2F4FA', boxShadow: '6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF' }}>
             <div className="space-y-4">
-              {prescriptions?.filter(p => p.isActive).length === 0 ? (
+              {prescriptions?.filter((p: any) => p.isActive).length === 0 ? (
                 <p className="text-center text-[#9898B8] text-sm">No active medications.</p>
               ) : (
-                prescriptions?.filter(p => p.isActive).map((rx) => (
+                prescriptions?.filter((p: any) => p.isActive).map((rx: any) => (
                   <div key={rx.id} className="p-4 rounded-xl bg-[#EEF0F5] shadow-[inset_2px_2px_5px_#C8CAD4,inset_-2px_-2px_5px_#FFFFFF]">
                     <h3 className="font-bold text-[#1E2035]">{rx.medicationName} <span className="text-[#5A5A7A] font-medium text-sm">{rx.dosage}{rx.unit}</span></h3>
                     <p className="text-xs text-[#9898B8] mt-1">{rx.frequency} • {rx.route || 'Oral'}</p>
@@ -113,7 +113,7 @@ export default function PatientRecords() {
               {labs?.length === 0 ? (
                 <p className="text-center text-[#9898B8] text-sm">No lab results available.</p>
               ) : (
-                labs?.map((lab) => (
+                labs?.map((lab: any) => (
                   <div key={lab.id} className="flex justify-between items-center p-4 rounded-xl bg-[#EEF0F5] hover:shadow-[inset_2px_2px_5px_#C8CAD4,inset_-2px_-2px_5px_#FFFFFF] transition-all">
                     <div>
                       <h3 className="font-bold text-[#1E2035]">{lab.testName}</h3>

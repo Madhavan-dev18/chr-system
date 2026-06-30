@@ -69,7 +69,7 @@ export const prescriptionRouter = createTRPCRouter({
 
       // Basic case-insensitive allergy check
       const medNameLower = input.medicationName.toLowerCase();
-      const hasAllergy = patient.allergies.some(a => medNameLower.includes(a.toLowerCase()));
+      const hasAllergy = patient.allergies.some((a: any) => medNameLower.includes(a.toLowerCase()));
       
       if (hasAllergy) {
         throw new TRPCError({
@@ -78,7 +78,7 @@ export const prescriptionRouter = createTRPCRouter({
         });
       }
 
-      const result = await ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx: any) => {
         const prescription = await tx.prescription.create({
           data: {
             patientId: input.patientId,
@@ -128,7 +128,7 @@ export const prescriptionRouter = createTRPCRouter({
 
       if (!prescription) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      const result = await ctx.db.$transaction(async (tx) => {
+      const result = await ctx.db.$transaction(async (tx: any) => {
         const updated = await tx.prescription.update({
           where: { id: input.id },
           data: {

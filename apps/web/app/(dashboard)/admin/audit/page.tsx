@@ -68,7 +68,7 @@ export default function AuditLogsPage() {
               ) : data?.logs.length === 0 ? (
                 <tr><td colSpan={5} className="py-8 text-center text-[#9898B8]">No audit logs found.</td></tr>
               ) : (
-                data?.logs.map((log) => (
+                data?.logs.map((log: any) => (
                   <tr key={log.id} className="hover:bg-[#EEF0F5] transition-colors">
                     <td className="py-4 px-4 font-mono text-xs whitespace-nowrap">
                       {new Date(log.timestamp).toLocaleString()}

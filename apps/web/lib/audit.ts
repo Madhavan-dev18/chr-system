@@ -15,7 +15,7 @@ export interface AuditLogParams {
 }
 
 export async function auditLog(
-  prisma: PrismaClient,
+  prisma: any,
   params: AuditLogParams
 ): Promise<void> {
   try {

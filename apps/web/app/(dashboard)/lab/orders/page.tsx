@@ -51,8 +51,8 @@ export default function LabOrders() {
     });
   };
 
-  const pendingLabs = labs?.filter(l => l.status === 'PENDING') || [];
-  const completedLabs = labs?.filter(l => l.status === 'RESULTED' || l.status === 'REVIEWED') || [];
+  const pendingLabs = labs?.filter((l: any) => l.status === 'PENDING') || [];
+  const completedLabs = labs?.filter((l: any) => l.status === 'RESULTED' || l.status === 'REVIEWED') || [];
 
   return (
     <div className="p-8 space-y-6">
@@ -76,7 +76,7 @@ export default function LabOrders() {
                 No pending orders right now.
               </div>
             ) : (
-              pendingLabs.map(lab => (
+              pendingLabs.map((lab: any) => (
                 <div 
                   key={lab.id} 
                   className={`rounded-3xl p-6 cursor-pointer transition-all hover:scale-[1.02] ${selectedOrderId === lab.id ? 'border-2 border-[#4A90D9]' : ''}`} 

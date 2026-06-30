@@ -73,7 +73,7 @@ export default function VitalsEntry() {
               required
             >
               <option value="">Choose...</option>
-              {patients?.map(p => (
+              {patients?.map((p: any) => (
                 <option key={p.id} value={p.id}>{p.firstName} {p.lastName} ({p.mrn})</option>
               ))}
             </select>

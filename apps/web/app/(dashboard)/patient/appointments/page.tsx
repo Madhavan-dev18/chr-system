@@ -15,8 +15,8 @@ export default function PatientAppointments() {
     patientId: profile?.id as string 
   }, { enabled: !!profile?.id });
 
-  const upcoming = appointments?.filter(a => new Date(a.scheduledStart).getTime() > Date.now() && a.status !== 'CANCELLED') || [];
-  const past = appointments?.filter(a => new Date(a.scheduledStart).getTime() <= Date.now() || a.status === 'CANCELLED') || [];
+  const upcoming = appointments?.filter((a: any) => new Date(a.scheduledStart).getTime() > Date.now() && a.status !== 'CANCELLED') || [];
+  const past = appointments?.filter((a: any) => new Date(a.scheduledStart).getTime() <= Date.now() || a.status === 'CANCELLED') || [];
 
   return (
     <div className="p-8 space-y-8 max-w-5xl mx-auto">
@@ -39,7 +39,7 @@ export default function PatientAppointments() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {upcoming.map(apt => (
+            {upcoming.map((apt: any) => (
               <div key={apt.id} className="rounded-3xl p-6 relative overflow-hidden" style={{ background: '#F2F4FA', boxShadow: '6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF' }}>
                 {/* Accent line */}
                 <div className="absolute top-0 left-0 w-2 h-full bg-[#4A90D9]"></div>
@@ -86,7 +86,7 @@ export default function PatientAppointments() {
             {past.length === 0 ? (
               <p className="text-center text-[#9898B8] text-sm">No past visits recorded.</p>
             ) : (
-              past.map(apt => (
+              past.map((apt: any) => (
                 <div key={apt.id} className="flex justify-between items-center p-4 rounded-xl bg-[#EEF0F5] opacity-80">
                   <div>
                     <h3 className="font-bold text-[#1E2035]">

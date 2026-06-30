@@ -89,7 +89,7 @@ export default function ReceptionistAppointments() {
                 required
               >
                 <option value="">Select Patient...</option>
-                {patients?.map(p => (
+                {patients?.map((p: any) => (
                   <option key={p.id} value={p.id}>{p.firstName} {p.lastName} ({p.mrn})</option>
                 ))}
               </select>
@@ -168,7 +168,7 @@ export default function ReceptionistAppointments() {
               No appointments scheduled for this date.
             </div>
           ) : (
-            appointments?.map(apt => (
+            appointments?.map((apt: any) => (
               <div key={apt.id} className="flex items-center justify-between p-4 rounded-xl bg-[#EEF0F5] transition-all hover:shadow-[inset_2px_2px_5px_#C8CAD4,inset_-2px_-2px_5px_#FFFFFF]">
                 <div className="flex items-center gap-6">
                   <div className="flex flex-col items-center justify-center w-16 text-[#4A90D9]">

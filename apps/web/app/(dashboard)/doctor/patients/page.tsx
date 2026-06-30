@@ -54,7 +54,7 @@ export default function DoctorPatientsDashboard() {
           ) : patients?.length === 0 ? (
             <div className="px-4 py-8 text-center text-[#9898B8]">No patients found.</div>
           ) : (
-            patients?.map((patient) => (
+            patients?.map((patient: any) => (
               <div key={patient.id} className="grid grid-cols-5 gap-4 px-4 py-4 items-center transition-colors hover:bg-[#EEF0F5]/50 rounded-xl mt-2 cursor-pointer">
                 <div className="font-mono text-[#4A90D9] font-medium">{patient.mrn}</div>
                 <div className="font-semibold text-[#1E2035]">{patient.firstName} {patient.lastName}</div>

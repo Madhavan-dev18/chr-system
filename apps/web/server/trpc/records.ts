@@ -38,7 +38,7 @@ export const recordsRouter = createTRPCRouter({
       // The clinical note is encrypted in Node.js memory. The DB only ever sees random bytes.
       const { ciphertext, iv, authTag } = encryptRecord(input.content);
 
-      const record = await ctx.db.$transaction(async (tx) => {
+      const record = await ctx.db.$transaction(async (tx: any) => {
         const createdRecord = await tx.medicalRecord.create({
           data: {
             patientId: input.patientId,

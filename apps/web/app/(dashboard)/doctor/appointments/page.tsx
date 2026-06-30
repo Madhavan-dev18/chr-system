@@ -46,7 +46,7 @@ export default function DoctorAppointments() {
             <p className="text-[#9898B8] font-medium mt-2">You have a clear schedule for this day.</p>
           </div>
         ) : (
-          appointments?.map(apt => (
+          appointments?.map((apt: any) => (
             <div key={apt.id} className="rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-all hover:scale-[1.01]" style={{ background: '#F2F4FA', boxShadow: '6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF' }}>
               
               <div className="flex items-center gap-6 w-full md:w-auto">

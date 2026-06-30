@@ -129,8 +129,8 @@ export const enforceClinicIsolation = t.middleware(async ({ ctx, next }) => {
       ctx: {
         ...ctx,
         session: {
-          ...ctx.session,
-          user: { ...ctx.session.user, clinicId: clinicId as string },
+          ...ctx.session!,
+          user: { ...ctx.session!.user, clinicId: clinicId as string },
         }
       },
     });

@@ -10,7 +10,7 @@ export function NursePatientsClient() {
 
   const { data: patients, isLoading, refetch } = trpc.patients.list.useQuery();
 
-  const filteredPatients = patients?.filter(p => 
+  const filteredPatients = patients?.filter((p: any) => 
     p.mrn.toLowerCase().includes(searchQuery.toLowerCase()) || 
     `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -69,7 +69,7 @@ export function NursePatientsClient() {
           ) : filteredPatients?.length === 0 ? (
             <div className="px-4 py-8 text-center text-[#9898B8]">No patients found.</div>
           ) : (
-            filteredPatients?.map(patient => {
+            filteredPatients?.map((patient: any) => {
               const latestVitals = patient.vitals[0];
               return (
                 <div key={patient.id} className="grid grid-cols-5 gap-4 px-4 py-4 items-center transition-colors hover:bg-[#EEF0F5]/50 rounded-xl mt-2 cursor-pointer">

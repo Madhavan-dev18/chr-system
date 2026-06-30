@@ -24,7 +24,7 @@ export function VitalsChart({ data }: VitalsChartProps) {
   // Sort data chronologically and format for Recharts
   const chartData = [...data]
     .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime())
-    .map(v => ({
+    .map((v: any) => ({
       date: new Date(v.recordedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       Systolic: v.bpSystolic,
       Diastolic: v.bpDiastolic,

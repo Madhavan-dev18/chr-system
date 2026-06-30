@@ -49,7 +49,7 @@ export default function DoctorLabReview() {
           style={{ background: '#EEF0F5', boxShadow: 'inset 4px 4px 8px #C8CAD4, inset -4px -4px 8px #FFFFFF' }}
         >
           <option value="">All Patients</option>
-          {patients?.map(p => (
+          {patients?.map((p: any) => (
             <option key={p.id} value={p.id}>{p.firstName} {p.lastName} ({p.mrn})</option>
           ))}
         </select>
@@ -105,7 +105,7 @@ export default function DoctorLabReview() {
               <p className="text-[#9898B8] font-medium mt-2">No labs found for the selected patient.</p>
             </div>
           ) : (
-            labs?.map((lab) => (
+            labs?.map((lab: any) => (
               <div 
                 key={lab.id} 
                 className={`rounded-3xl p-6 transition-all ${lab.isAbnormal ? 'border-2 border-[#E84545]' : ''}`} 

@@ -3,7 +3,7 @@ import { env } from './env';
 import { logger } from './logger';
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prisma: any;
 };
 
 import { AsyncLocalStorage } from 'async_hooks';
@@ -26,16 +26,10 @@ const instantiatePrisma = () => {
     }
   });
 
-  // Attempt a dummy query or just rely on instantiation time if lazy
-  // For Supabase pooler latency check, let's fire a tiny ping.
-  client.$queryRaw`SELECT 1`.then(() => {
-    const elapsed = performance.now() - start;
-    if (elapsed > 500) {
-      logger.warn({ ms: elapsed.toFixed(2) }, `[HealthCheck] Prisma connection pool instantiation took > 500ms`);
-    }
-  }).catch((err) => {
-    logger.error({ err }, `[HealthCheck] Failed to ping Prisma database pool`);
-  });
+  const elapsed = performance.now() - start;
+  if (elapsed > 500) {
+    logger.warn({ ms: elapsed.toFixed(2) }, `[HealthCheck] Prisma connection pool instantiation took > 500ms`);
+  }
 
   // Global Tenant Enforcement Middleware
   return client.$extends({

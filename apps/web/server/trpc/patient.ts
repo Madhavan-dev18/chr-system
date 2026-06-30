@@ -38,7 +38,7 @@ export const patientRouter = createTRPCRouter({
       const randomHex = Math.floor(Math.random() * 65536).toString(16).padStart(4, '0').toUpperCase();
       const mrn = `MRN-${dateStr}-${randomHex}`;
 
-      const patient = await ctx.db.$transaction(async (tx) => {
+      const patient = await ctx.db.$transaction(async (tx: any) => {
         const createdPatient = await tx.patient.create({
           data: {
             ...input,

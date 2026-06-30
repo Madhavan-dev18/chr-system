@@ -67,7 +67,7 @@ export default function DoctorPrescriptions() {
           style={{ background: '#EEF0F5', boxShadow: 'inset 4px 4px 8px #C8CAD4, inset -4px -4px 8px #FFFFFF' }}
         >
           <option value="">Select a Patient...</option>
-          {patients?.map(p => (
+          {patients?.map((p: any) => (
             <option key={p.id} value={p.id}>{p.firstName} {p.lastName} ({p.mrn})</option>
           ))}
         </select>
@@ -177,7 +177,7 @@ export default function DoctorPrescriptions() {
                     No prescriptions found for this patient.
                   </div>
                 ) : (
-                  prescriptions?.map(rx => (
+                  prescriptions?.map((rx: any) => (
                     <div key={rx.id} className={`flex items-center justify-between p-4 rounded-xl transition-all ${rx.isActive ? 'bg-[#EEF0F5]' : 'bg-[#EEF0F5]/50 opacity-60'}`} style={rx.isActive ? { boxShadow: 'inset 2px 2px 5px #C8CAD4, inset -2px -2px 5px #FFFFFF' } : {}}>
                       <div className="flex items-center gap-4">
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center ${rx.isActive ? 'bg-[#4A90D9]/10 text-[#4A90D9]' : 'bg-[#9898B8]/10 text-[#9898B8]'}`}>

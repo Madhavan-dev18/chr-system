@@ -76,7 +76,7 @@ export function NotificationBell() {
               </div>
             ) : (
               <div className="divide-y divide-[#C8CAD4]/20">
-                {notifications?.map((n) => (
+                {notifications?.map((n: any) => (
                   <div key={n.id} className="p-4 hover:bg-[#F2F4FA] transition-colors flex gap-3">
                     <div className="flex-1">
                       <p className="text-xs font-bold text-[#1E2035] mb-1">{n.title}</p>
