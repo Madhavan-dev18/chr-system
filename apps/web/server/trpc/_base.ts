@@ -3,7 +3,7 @@ import { TRPCContext } from './context';
 import { Role } from '@chr/db';
 import { auditLog } from '@/lib/audit';
 import superjson from 'superjson';
-import { prisma } from '@/lib/prisma';
+import { prisma, tenantStorage } from '@/lib/prisma';
 import { Ratelimit } from '@upstash/ratelimit';
 import { redis } from '@/lib/redis';
 
@@ -119,41 +119,16 @@ export const enforceClinicIsolation = t.middleware(async ({ ctx, next }) => {
   
   const clinicId = ctx.session.user.clinicId;
 
-  const tenantDb = ctx.db.$extends({
-    query: {
-      $allModels: {
-        async $allOperations({ model, operation, args, query }) {
-          const tenantModels = ['Patient', 'MedicalRecord', 'Vitals', 'Appointment', 'Prescription', 'LabResult', 'User'];
-          if (tenantModels.includes(model as string)) {
-            const anyArgs = args as any;
-            if (anyArgs.where) {
-              anyArgs.where = { ...anyArgs.where, clinicId };
-            } else if (['findMany', 'findFirst', 'count', 'deleteMany', 'updateMany'].includes(operation)) {
-              anyArgs.where = { clinicId };
-            }
-            if (['create', 'createMany', 'update', 'updateMany'].includes(operation) && anyArgs.data) {
-              if (Array.isArray(anyArgs.data)) {
-                anyArgs.data = anyArgs.data.map((d: any) => ({ ...d, clinicId }));
-              } else {
-                anyArgs.data = { ...anyArgs.data, clinicId };
-              }
-            }
-          }
-          return query(args);
+  return tenantStorage.run(clinicId as string, () => {
+    return next({
+      ctx: {
+        ...ctx,
+        session: {
+          ...ctx.session,
+          user: { ...ctx.session.user, clinicId: clinicId as string },
         }
-      }
-    }
-  });
-
-  return next({
-    ctx: {
-      ...ctx,
-      db: tenantDb as unknown as typeof ctx.db,
-      session: {
-        ...ctx.session,
-        user: { ...ctx.session.user, clinicId: clinicId as string },
-      }
-    },
+      },
+    });
   });
 });
 

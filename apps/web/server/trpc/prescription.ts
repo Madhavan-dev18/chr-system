@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
+import { auditLog } from '@/lib/audit';
 
 export const prescriptionRouter = createTRPCRouter({
   
@@ -77,22 +78,37 @@ export const prescriptionRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.prescription.create({
-        data: {
-          patientId: input.patientId,
-          doctorId: ctx.session.user.id,
+      return ctx.db.$transaction(async (tx) => {
+        const prescription = await tx.prescription.create({
+          data: {
+            patientId: input.patientId,
+            doctorId: ctx.session.user.id,
+            clinicId: ctx.session.user.clinicId,
+            medicationName: input.medicationName,
+            dosage: input.dosage,
+            unit: input.unit,
+            frequency: input.frequency,
+            route: input.route,
+            startDate: new Date(input.startDate),
+            endDate: input.endDate ? new Date(input.endDate) : undefined,
+            notes: input.notes,
+            icd10Code: input.icd10Code,
+            isActive: true,
+          }
+        });
+
+        await auditLog(tx as any, {
+          userId: ctx.session.user.id,
           clinicId: ctx.session.user.clinicId,
-          medicationName: input.medicationName,
-          dosage: input.dosage,
-          unit: input.unit,
-          frequency: input.frequency,
-          route: input.route,
-          startDate: new Date(input.startDate),
-          endDate: input.endDate ? new Date(input.endDate) : undefined,
-          notes: input.notes,
-          icd10Code: input.icd10Code,
-          isActive: true,
-        }
+          action: 'CREATE',
+          resource: 'Prescription',
+          resourceId: prescription.id,
+          ipAddress: ctx.ip,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
+        });
+
+        return prescription;
       });
     }),
 
@@ -110,13 +126,28 @@ export const prescriptionRouter = createTRPCRouter({
 
       if (!prescription) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      return ctx.db.prescription.update({
-        where: { id: input.id },
-        data: {
-          isActive: false,
-          discontinuedAt: new Date(),
-          discontinuedById: ctx.session.user.id,
-        }
+      return ctx.db.$transaction(async (tx) => {
+        const updated = await tx.prescription.update({
+          where: { id: input.id },
+          data: {
+            isActive: false,
+            discontinuedAt: new Date(),
+            discontinuedById: ctx.session.user.id,
+          }
+        });
+
+        await auditLog(tx as any, {
+          userId: ctx.session.user.id,
+          clinicId: ctx.session.user.clinicId,
+          action: 'DELETE',
+          resource: 'Prescription (Discontinue)',
+          resourceId: updated.id,
+          ipAddress: ctx.ip,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
+        });
+
+        return updated;
       });
     }),
 });

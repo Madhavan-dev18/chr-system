@@ -14,7 +14,11 @@ vi.mock('../../lib/prisma', () => {
     },
     $extends: vi.fn().mockReturnThis(),
   };
-  return { prisma: mockPrisma };
+  const mockTenantStorage = {
+    run: vi.fn((clinicId, cb) => cb()),
+    getStore: vi.fn(),
+  };
+  return { prisma: mockPrisma, tenantStorage: mockTenantStorage };
 });
 
 vi.mock('@upstash/ratelimit', () => {
