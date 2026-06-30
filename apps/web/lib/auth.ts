@@ -5,8 +5,8 @@ import { prisma } from './prisma';
 import { auditLog } from './audit';
 import { checkRateLimit, incrementRateLimit, resetRateLimit } from './rate-limit';
 import { authConfig } from './auth.config';
-import { cookies } from 'next/headers';
-import { generateRefreshTokensV2, storeRefreshToken } from './tokens';
+import { logger } from './logger';
+
 class RateLimitError extends CredentialsSignin {
   code = 'rate_limit_exceeded';
 }
@@ -29,10 +29,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const email = credentials.email.toLowerCase();
 
-        // 1. Rate Limit Check (Redis)
-        const rateLimit = await checkRateLimit(email);
-        if (rateLimit.limited) {
-          throw new RateLimitError();
+        // 1. Rate Limit Check (Redis) — fail open if Redis is unavailable
+        try {
+          const rateLimit = await checkRateLimit(email);
+          if (rateLimit.limited) {
+            throw new RateLimitError();
+          }
+        } catch (error) {
+          // Re-throw known auth errors (rate limit), degrade gracefully on Redis failures
+          if (error instanceof RateLimitError) throw error;
+          logger.error({ err: error, email }, 'Redis rate-limit check failed — proceeding without rate limiting');
         }
 
         // 2. Find user
@@ -67,7 +73,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             data: { failedLogins, lockedUntil },
           });
 
-          await incrementRateLimit(email);
+          // Redis rate-limit increment — fail open
+          try {
+            await incrementRateLimit(email);
+          } catch (error) {
+            logger.error({ err: error, email }, 'Redis rate-limit increment failed — skipping');
+          }
 
           await auditLog(prisma, {
             userId: user.id,
@@ -94,24 +105,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           },
         });
 
-        await resetRateLimit(email);
+        // Redis rate-limit reset — fail open
+        try {
+          await resetRateLimit(email);
+        } catch (error) {
+          logger.error({ err: error, email }, 'Redis rate-limit reset failed — skipping');
+        }
 
-        // 6. Generate Refresh Token
-        const { raw, hash } = generateRefreshTokensV2();
-        await storeRefreshToken(hash, user.id, user.clinicId);
-        
-        const cookieStore = await cookies();
-        const cookieName = process.env.NODE_ENV === 'production' ? '__Secure-auth.refresh-token' : 'auth.refresh-token';
-        cookieStore.set(cookieName, raw, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          path: '/',
-          maxAge: 7 * 24 * 60 * 60, // 7 days
-        });
-
-        // The audit log for successful LOGIN will be recorded in the route handler or tRPC procedure
-        // when the refresh token is also provisioned, to keep it cohesive.
         return {
           id: user.id,
           email: user.email,
@@ -121,15 +121,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  cookies: {
-    sessionToken: {
-      name: process.env.NODE_ENV === 'production' ? '__Secure-auth.session-token' : 'auth.session-token',
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-  },
+  // Cookie config is inherited from authConfig (auth.config.ts) via the spread.
+  // Do NOT add a cookies override here — middleware and this instance must agree
+  // on the cookie name, and authConfig is the single source of truth.
 });

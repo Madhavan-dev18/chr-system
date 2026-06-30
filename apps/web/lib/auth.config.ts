@@ -5,6 +5,19 @@ export const authConfig = {
   providers: [],
   session: { strategy: 'jwt', maxAge: 15 * 60 },
   pages: { signIn: '/login' },
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === 'production'
+        ? '__Secure-auth.session-token'
+        : 'auth.session-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax' as const,
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
