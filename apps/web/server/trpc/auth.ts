@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/prisma';
 import { createTRPCRouter, protectedProcedure } from './_base';
 import { auditLog } from '@/lib/audit';
 import { z } from 'zod';
@@ -7,7 +6,7 @@ import { TRPCError } from '@trpc/server';
 export const authRouter = createTRPCRouter({
   logout: protectedProcedure.mutation(async ({ ctx }) => {
     // Audit log the logout
-    await auditLog(prisma, {
+    await auditLog(ctx.db, {
       userId: ctx.session.user.id,
       clinicId: ctx.session.user.clinicId || undefined,
       action: 'LOGOUT',
@@ -32,7 +31,7 @@ export const authRouter = createTRPCRouter({
     const { ciphertext, iv, authTag } = encryptMfaSecret(secret);
     const encryptedBlob = Buffer.concat([iv, authTag, ciphertext]);
 
-    await prisma.user.update({
+    await ctx.db.user.update({
       where: { id: ctx.session.user.id },
       data: { mfaSecret: encryptedBlob, mfaEnabled: false },
     });
@@ -46,7 +45,7 @@ export const authRouter = createTRPCRouter({
       const { authenticator } = require('otplib');
       const { decryptMfaSecret } = await import('@/lib/crypto');
 
-      const user = await prisma.user.findUnique({
+      const user = await ctx.db.user.findUnique({
         where: { id: ctx.session.user.id },
         select: { mfaSecret: true },
       });
@@ -69,12 +68,12 @@ export const authRouter = createTRPCRouter({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid TOTP token.' });
       }
 
-      await prisma.user.update({
+      await ctx.db.user.update({
         where: { id: ctx.session.user.id },
         data: { mfaEnabled: true },
       });
 
-      await auditLog(prisma, {
+      await auditLog(ctx.db, {
         userId: ctx.session.user.id,
         clinicId: ctx.session.user.clinicId || undefined,
         action: 'UPDATE',

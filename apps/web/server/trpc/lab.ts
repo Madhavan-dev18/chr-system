@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { LabStatus, Role } from '@chr/db';
@@ -15,7 +14,7 @@ export const labRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       // Patients can only see their own labs
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await prisma.patient.findUnique({
+        const patientRecord = await ctx.db.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (!patientRecord) return [];
@@ -28,7 +27,7 @@ export const labRouter = createTRPCRouter({
         ...(input.status ? { status: input.status } : {}),
       };
 
-      return prisma.labResult.findMany({
+      return ctx.db.labResult.findMany({
         where,
         include: {
           patient: { select: { id: true, firstName: true, lastName: true, mrn: true } },
@@ -50,7 +49,7 @@ export const labRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Doctors can order lab tests.' });
       }
 
-      return prisma.labResult.create({
+      return ctx.db.labResult.create({
         data: {
           patientId: input.patientId,
           orderedById: ctx.session.user.id,
@@ -77,13 +76,13 @@ export const labRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Lab Techs or Doctors can enter results.' });
       }
 
-      const lab = await prisma.labResult.findUnique({
+      const lab = await ctx.db.labResult.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId }
       });
 
       if (!lab) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      const updatedLab = await prisma.labResult.update({
+      const updatedLab = await ctx.db.labResult.update({
         where: { id: input.id },
         data: {
           resultValue: input.resultValue,
@@ -98,7 +97,7 @@ export const labRouter = createTRPCRouter({
       });
 
       // Optionally: Trigger an in-app notification to the ordering doctor here.
-      // E.g., await prisma.notification.create(...)
+      // E.g., await ctx.db.notification.create(...)
 
       return updatedLab;
     }),

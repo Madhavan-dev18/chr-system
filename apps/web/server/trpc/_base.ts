@@ -65,7 +65,7 @@ export const protectedProcedure = t.procedure.use(rateLimiterMiddleware).use(asy
   if (type === 'mutation' && result.ok) {
     // Note: In a real system, you might want more granular control over what gets audited,
     // or infer the action/resource from the path. This is a baseline implementation.
-    await auditLog(prisma, {
+    await auditLog(ctx.db, {
       userId: ctx.session.user.id,
       clinicId: ctx.session.user.clinicId || undefined,
       action: 'UPDATE', // Default, should be overridden by specific procedures if needed
@@ -108,7 +108,7 @@ export const patientProcedure = protectedProcedure.use(allowedRoles([Role.PATIEN
 export const receptionistProcedure = protectedProcedure.use(allowedRoles([Role.RECEPTIONIST]));
 export const labTechProcedure = protectedProcedure.use(allowedRoles([Role.LAB_TECH]));
 
-// Middleware to strictly scope procedures to a clinic context
+// Middleware to strictly scope procedures to a clinic context using Prisma Extension
 export const enforceClinicIsolation = t.middleware(async ({ ctx, next }) => {
   if (!ctx.session?.user?.clinicId) {
     throw new TRPCError({
@@ -117,13 +117,41 @@ export const enforceClinicIsolation = t.middleware(async ({ ctx, next }) => {
     });
   }
   
+  const clinicId = ctx.session.user.clinicId;
+
+  const tenantDb = ctx.db.$extends({
+    query: {
+      $allModels: {
+        async $allOperations({ model, operation, args, query }) {
+          const tenantModels = ['Patient', 'MedicalRecord', 'Vitals', 'Appointment', 'Prescription', 'LabResult', 'User'];
+          if (tenantModels.includes(model as string)) {
+            const anyArgs = args as any;
+            if (anyArgs.where) {
+              anyArgs.where = { ...anyArgs.where, clinicId };
+            } else if (['findMany', 'findFirst', 'count', 'deleteMany', 'updateMany'].includes(operation)) {
+              anyArgs.where = { clinicId };
+            }
+            if (['create', 'createMany', 'update', 'updateMany'].includes(operation) && anyArgs.data) {
+              if (Array.isArray(anyArgs.data)) {
+                anyArgs.data = anyArgs.data.map((d: any) => ({ ...d, clinicId }));
+              } else {
+                anyArgs.data = { ...anyArgs.data, clinicId };
+              }
+            }
+          }
+          return query(args);
+        }
+      }
+    }
+  });
+
   return next({
     ctx: {
       ...ctx,
-      // Overwrite the type so clinicId is guaranteed to be a string in downstream resolvers
+      db: tenantDb as unknown as typeof ctx.db,
       session: {
         ...ctx.session,
-        user: { ...ctx.session.user, clinicId: ctx.session.user.clinicId as string },
+        user: { ...ctx.session.user, clinicId: clinicId as string },
       }
     },
   });

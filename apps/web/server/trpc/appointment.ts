@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { AppointmentStatus, AppointmentType, Role } from '@chr/db';
@@ -18,7 +17,7 @@ export const appointmentRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       // Patients can only see their own appointments
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await prisma.patient.findUnique({
+        const patientRecord = await ctx.db.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (!patientRecord) return [];
@@ -36,7 +35,7 @@ export const appointmentRouter = createTRPCRouter({
         if (input.endDate) where.scheduledStart.lte = new Date(input.endDate);
       }
 
-      return prisma.appointment.findMany({
+      return ctx.db.appointment.findMany({
         where,
         include: {
           patient: { select: { id: true, firstName: true, lastName: true, mrn: true, dob: true } },
@@ -50,7 +49,7 @@ export const appointmentRouter = createTRPCRouter({
   getById: clinicScopedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const appointment = await prisma.appointment.findUnique({
+      const appointment = await ctx.db.appointment.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId },
         include: {
           patient: true,
@@ -62,7 +61,7 @@ export const appointmentRouter = createTRPCRouter({
 
       // Enforce PATIENT privacy
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await prisma.patient.findUnique({
+        const patientRecord = await ctx.db.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (appointment.patientId !== patientRecord?.id) {
@@ -85,7 +84,7 @@ export const appointmentRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // Use Prisma transactions to prevent double booking race conditions.
-      return prisma.$transaction(async (tx) => {
+      return ctx.db.$transaction(async (tx) => {
         const overlapping = await tx.appointment.findFirst({
           where: {
             doctorId: input.doctorId,
@@ -130,7 +129,7 @@ export const appointmentRouter = createTRPCRouter({
       cancelReason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const appointment = await prisma.appointment.findUnique({
+      const appointment = await ctx.db.appointment.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId }
       });
 
@@ -141,7 +140,7 @@ export const appointmentRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Patients can only cancel appointments.' });
       }
 
-      return prisma.appointment.update({
+      return ctx.db.appointment.update({
         where: { id: input.id },
         data: {
           status: input.status,

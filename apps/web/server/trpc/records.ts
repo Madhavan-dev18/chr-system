@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -23,7 +22,7 @@ export const recordsRouter = createTRPCRouter({
       }
 
       // Verify patient access
-      const patient = await prisma.patient.findUnique({
+      const patient = await ctx.db.patient.findUnique({
         where: { id: input.patientId },
       });
 
@@ -39,7 +38,7 @@ export const recordsRouter = createTRPCRouter({
       // The clinical note is encrypted in Node.js memory. The DB only ever sees random bytes.
       const { ciphertext, iv, authTag } = encryptRecord(input.content);
 
-      const record = await prisma.medicalRecord.create({
+      const record = await ctx.db.medicalRecord.create({
         data: {
           patientId: input.patientId,
           doctorId: userId,
@@ -52,7 +51,7 @@ export const recordsRouter = createTRPCRouter({
         },
       });
 
-      await auditLog(prisma, {
+      await auditLog(ctx.db, {
         userId,
         clinicId,
         action: 'CREATE',
@@ -72,7 +71,7 @@ export const recordsRouter = createTRPCRouter({
       const { role, id: userId, clinicId } = ctx.session.user;
 
       // Access checks
-      const patient = await prisma.patient.findUnique({
+      const patient = await ctx.db.patient.findUnique({
         where: { id: input.patientId },
       });
 
@@ -86,7 +85,7 @@ export const recordsRouter = createTRPCRouter({
 
       // Note: We deliberately exclude `encryptedContent`, `iv`, and `authTag` from the SELECT
       // to save massive amounts of bandwidth on the list view.
-      const recordsList = await prisma.medicalRecord.findMany({
+      const recordsList = await ctx.db.medicalRecord.findMany({
         where: { patientId: input.patientId, clinicId },
         select: {
           id: true,
@@ -98,7 +97,7 @@ export const recordsRouter = createTRPCRouter({
         orderBy: { createdAt: 'desc' },
       });
 
-      await auditLog(prisma, {
+      await auditLog(ctx.db, {
         userId,
         clinicId,
         action: 'VIEW',
@@ -117,7 +116,7 @@ export const recordsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const { role, id: userId, clinicId } = ctx.session.user;
 
-      const record = await prisma.medicalRecord.findUnique({
+      const record = await ctx.db.medicalRecord.findUnique({
         where: { id: input.recordId },
         include: { patient: true },
       });
@@ -149,7 +148,7 @@ export const recordsRouter = createTRPCRouter({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Decryption failed or record was tampered with.' });
       }
 
-      await auditLog(prisma, {
+      await auditLog(ctx.db, {
         userId,
         clinicId,
         action: 'VIEW',

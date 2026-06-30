@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -14,7 +13,7 @@ export const prescriptionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       // Enforce PATIENT privacy
       if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await prisma.patient.findUnique({
+        const patientRecord = await ctx.db.patient.findUnique({
           where: { userId: ctx.session.user.id },
         });
         if (input.patientId !== patientRecord?.id) {
@@ -31,7 +30,7 @@ export const prescriptionRouter = createTRPCRouter({
         where.isActive = true;
       }
 
-      return prisma.prescription.findMany({
+      return ctx.db.prescription.findMany({
         where,
         include: {
           doctor: { select: { id: true, email: true } },
@@ -61,7 +60,7 @@ export const prescriptionRouter = createTRPCRouter({
       }
 
       // Check allergies
-      const patient = await prisma.patient.findUnique({
+      const patient = await ctx.db.patient.findUnique({
         where: { id: input.patientId, clinicId: ctx.session.user.clinicId }
       });
 
@@ -78,7 +77,7 @@ export const prescriptionRouter = createTRPCRouter({
         });
       }
 
-      return prisma.prescription.create({
+      return ctx.db.prescription.create({
         data: {
           patientId: input.patientId,
           doctorId: ctx.session.user.id,
@@ -105,13 +104,13 @@ export const prescriptionRouter = createTRPCRouter({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Doctors can discontinue prescriptions.' });
       }
 
-      const prescription = await prisma.prescription.findUnique({
+      const prescription = await ctx.db.prescription.findUnique({
         where: { id: input.id, clinicId: ctx.session.user.clinicId }
       });
 
       if (!prescription) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      return prisma.prescription.update({
+      return ctx.db.prescription.update({
         where: { id: input.id },
         data: {
           isActive: false,

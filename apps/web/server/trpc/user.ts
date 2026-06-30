@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
@@ -33,7 +32,7 @@ export const userRouter = createTRPCRouter({
       }
 
       // Check if user already exists
-      const existingUser = await prisma.user.findUnique({
+      const existingUser = await ctx.db.user.findUnique({
         where: { email: input.email.toLowerCase() },
       });
 
@@ -48,7 +47,7 @@ export const userRouter = createTRPCRouter({
       const passwordHash = await bcrypt.hash(input.password, 12);
 
       // Create the user inherently tied to the invoking Admin's clinicId
-      const newUser = await prisma.user.create({
+      const newUser = await ctx.db.user.create({
         data: {
           email: input.email.toLowerCase(),
           passwordHash,

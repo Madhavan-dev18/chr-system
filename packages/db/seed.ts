@@ -1,200 +1,135 @@
-import { PrismaClient, Role } from '@prisma/client'; // ts reload
+import { PrismaClient, Role, Gender } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import path from 'path';
+import { faker } from '@faker-js/faker';
+import crypto from 'crypto';
 
-// Load environment variables from apps/web/.env
 dotenv.config({ path: path.resolve(__dirname, '../../apps/web/.env') });
 
 const prisma = new PrismaClient();
 
+const RECORD_ENCRYPTION_KEY = process.env.RECORD_ENCRYPTION_KEY;
+if (!RECORD_ENCRYPTION_KEY) {
+  throw new Error("RECORD_ENCRYPTION_KEY is missing from environment variables.");
+}
+
+const encryptionKey = Buffer.from(RECORD_ENCRYPTION_KEY, 'base64');
+
+function encryptRecord(plaintext: string) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return { ciphertext, iv, authTag };
+}
+
 async function main() {
-  console.log('🌱 Starting database seeding...');
+  console.log('🌱 Starting Dynamic Database Seeding with Faker...');
 
-  // Create default clinic
-  const clinic = await prisma.clinic.upsert({
-    where: { slug: 'central-hospital' }, 
-    update: {},
-    create: {
-      name: 'Central Hospital (Seed)',
-      slug: 'central-hospital',
-    },
-  });
+  // Reset database safely by deleting records if necessary, or just upsert
+  await prisma.medicalRecord.deleteMany({});
+  await prisma.prescription.deleteMany({});
+  await prisma.vitals.deleteMany({});
+  await prisma.appointment.deleteMany({});
+  await prisma.patient.deleteMany({});
+  await prisma.user.deleteMany({});
+  await prisma.clinic.deleteMany({});
 
-  console.log(`✅ Clinic ensured: ${clinic.name}`);
+  const clinicsData = [
+    { name: 'Central Hospital', slug: 'central-hospital' },
+    { name: 'Westside Clinic', slug: 'westside-clinic' }
+  ];
 
-  // Create root admin (User requested credentials)
-  const adminEmail = 'madhavantt2017@gmail.com';
-  const rawPassword = '@123';
-  const passwordHash = bcrypt.hashSync(rawPassword, 12);
+  const clinics = [];
+  for (const c of clinicsData) {
+    const clinic = await prisma.clinic.create({ data: c });
+    clinics.push(clinic);
+    console.log(`✅ Created Clinic: ${clinic.name}`);
+  }
 
-  const adminUser = await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: { passwordHash },
-    create: {
-      email: adminEmail,
-      passwordHash,
-      role: Role.ADMIN,
-      clinicId: clinic.id,
-    },
-  });
-
-  console.log(`✅ Admin user ensured: ${adminEmail}`);
-  console.log(`🔐 Admin Password is set to: ${rawPassword}`);
-
-  // Create Dummy Doctor
-  const doctorUser = await prisma.user.upsert({
-    where: { email: 'doctor@chr-system.local' },
-    update: {},
-    create: {
-      email: 'doctor@chr-system.local',
-      passwordHash: bcrypt.hashSync('Doctor123!', 12),
-      role: Role.DOCTOR,
-      clinicId: clinic.id,
-    },
-  });
-  console.log(`✅ Doctor user ensured: doctor@chr-system.local`);
-
-  // Create Dummy Nurse
-  const nurseUser = await prisma.user.upsert({
-    where: { email: 'nurse@chr-system.local' },
-    update: {},
-    create: {
-      email: 'nurse@chr-system.local',
-      passwordHash: bcrypt.hashSync('Nurse123!', 12),
-      role: Role.NURSE,
-      clinicId: clinic.id,
-    },
-  });
-  console.log(`✅ Nurse user ensured: nurse@chr-system.local`);
-
-  // Create Dummy Patient User
-  const patientUser = await prisma.user.upsert({
-    where: { email: 'patient@chr-system.local' },
-    update: {},
-    create: {
-      email: 'patient@chr-system.local',
-      passwordHash: bcrypt.hashSync('Patient123!', 12),
-      role: Role.PATIENT,
-      clinicId: clinic.id,
-    },
-  });
+  // Create Users (5 total: 1 Admin, 2 Doctors, 2 Nurses spread across clinics)
+  const passwordHash = bcrypt.hashSync('@123', 12);
   
-  // Create Dummy Receptionist
-  const receptionistUser = await prisma.user.upsert({
-    where: { email: 'receptionist@chr-system.local' },
-    update: {},
-    create: {
-      email: 'receptionist@chr-system.local',
-      passwordHash: bcrypt.hashSync('Reception123!', 12),
-      role: Role.RECEPTIONIST,
-      clinicId: clinic.id,
-    },
-  });
-  console.log(`✅ Receptionist user ensured: receptionist@chr-system.local`);
+  const users = [
+    { email: 'admin@central.local', role: Role.ADMIN, clinicId: clinics[0].id },
+    { email: 'doctor@central.local', role: Role.DOCTOR, clinicId: clinics[0].id },
+    { email: 'nurse@central.local', role: Role.NURSE, clinicId: clinics[0].id },
+    { email: 'doctor@westside.local', role: Role.DOCTOR, clinicId: clinics[1].id },
+    { email: 'nurse@westside.local', role: Role.NURSE, clinicId: clinics[1].id },
+  ];
 
-  // Create Dummy Lab Tech
-  const labTechUser = await prisma.user.upsert({
-    where: { email: 'labtech@chr-system.local' },
-    update: {},
-    create: {
-      email: 'labtech@chr-system.local',
-      passwordHash: bcrypt.hashSync('Lab123!', 12),
-      role: Role.LAB_TECH,
-      clinicId: clinic.id,
-    },
-  });
-  console.log(`✅ Lab Tech user ensured: labtech@chr-system.local`);
-  
-  // Create Dummy Patient Profile linked to Doctor and Nurse
-  const patientProfile1 = await prisma.patient.upsert({
-    where: { mrn: 'MRN-202606-0001' },
-    update: {},
-    create: {
-      mrn: 'MRN-202606-0001',
-      firstName: 'Priya',
-      lastName: 'Nair',
-      dob: new Date('1990-05-15'),
-      gender: 'FEMALE',
-      bloodType: 'B+',
-      allergies: ['Peanuts'],
-      phone: '+91 98765 43210',
-      clinicId: clinic.id,
-      userId: patientUser.id,
-      assignedDoctorId: doctorUser.id,
-      assignedNurseId: nurseUser.id,
-    },
-  });
+  const createdUsers = [];
+  for (const u of users) {
+    const user = await prisma.user.create({
+      data: {
+        email: u.email,
+        passwordHash,
+        role: u.role,
+        clinicId: u.clinicId,
+      }
+    });
+    createdUsers.push(user);
+    console.log(`✅ Created ${u.role}: ${u.email}`);
+  }
 
-  const patientProfile2 = await prisma.patient.upsert({
-    where: { mrn: 'MRN-202606-0002' },
-    update: {},
-    create: {
-      mrn: 'MRN-202606-0002',
-      firstName: 'Karthik',
-      lastName: 'Rajan',
-      dob: new Date('1985-11-20'),
-      gender: 'MALE',
-      bloodType: 'O+',
-      allergies: [],
-      phone: '+91 91234 56789',
+  const doctors = createdUsers.filter(u => u.role === Role.DOCTOR);
+  const nurses = createdUsers.filter(u => u.role === Role.NURSE);
+
+  // Generate 50 Patients per clinic
+  console.log('Generating 100 patients (50 per clinic)...');
+  const allPatients = [];
+
+  for (const clinic of clinics) {
+    const clinicDoc = doctors.find(d => d.clinicId === clinic.id);
+    const clinicNurse = nurses.find(n => n.clinicId === clinic.id);
+
+    const patientsData = Array.from({ length: 50 }).map(() => ({
+      mrn: `MRN-${faker.number.int({ min: 100000, max: 999999 })}`,
+      firstName: faker.person.firstName(),
+      lastName: faker.person.lastName(),
+      dob: faker.date.birthdate({ min: 18, max: 90, mode: 'age' }),
+      gender: faker.helpers.arrayElement([Gender.MALE, Gender.FEMALE, Gender.OTHER]),
+      bloodType: faker.helpers.arrayElement(['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']),
+      allergies: faker.helpers.arrayElements(['Peanuts', 'Penicillin', 'Dust', 'Latex', 'Pollen'], { min: 0, max: 2 }),
+      phone: faker.phone.number(),
       clinicId: clinic.id,
-      assignedDoctorId: doctorUser.id,
-      assignedNurseId: nurseUser.id,
-    },
-  });
+      assignedDoctorId: clinicDoc?.id,
+      assignedNurseId: clinicNurse?.id,
+    }));
 
-  console.log(`✅ Patient profiles ensured: Priya Nair, Karthik Rajan`);
+    const insertedPatients = await prisma.$transaction(
+      patientsData.map(p => prisma.patient.create({ data: p }))
+    );
+    allPatients.push(...insertedPatients);
+  }
+  console.log('✅ Created 100 Patients.');
 
-  // Seed some vitals for Priya
-  await prisma.vitals.create({
-    data: {
-      patientId: patientProfile1.id,
-      recordedById: nurseUser.id,
-      clinicId: clinic.id,
-      bpSystolic: 120,
-      bpDiastolic: 80,
-      heartRate: 72,
-      spo2: 99,
-      temperatureF: 98.6,
-      weightKg: 65,
-    }
-  });
+  // Create Encrypted Medical Records
+  console.log('Generating Medical Records...');
+  for (const patient of allPatients) {
+    // 2 records per patient
+    const recordsToCreate = Array.from({ length: 2 }).map(() => {
+      const plaintextNote = faker.lorem.paragraphs(2);
+      const { ciphertext, iv, authTag } = encryptRecord(plaintextNote);
 
-  console.log(`✅ Seeded vitals for Priya Nair`);
-
-  // Seed an Appointment for Priya
-  await prisma.appointment.create({
-    data: {
-      patientId: patientProfile1.id,
-      doctorId: doctorUser.id,
-      clinicId: clinic.id,
-      scheduledStart: new Date(new Date().setHours(10, 0, 0, 0)), // Today at 10 AM
-      scheduledEnd: new Date(new Date().setHours(10, 30, 0, 0)),
-      type: 'CONSULTATION',
-      status: 'PENDING',
-      reason: 'Routine checkup and blood pressure review',
-    }
-  });
-  console.log(`✅ Seeded appointment for Priya Nair`);
-
-  // Seed a Prescription for Priya
-  await prisma.prescription.create({
-    data: {
-      patientId: patientProfile1.id,
-      doctorId: doctorUser.id,
-      clinicId: clinic.id,
-      medicationName: 'Amlodipine',
-      dosage: '5',
-      unit: 'mg',
-      frequency: 'Once daily in the morning',
-      route: 'Oral',
-      startDate: new Date(),
-      isActive: true,
-      notes: 'For hypertension management',
-    }
-  });
-  console.log(`✅ Seeded prescription for Priya Nair`);
+      return prisma.medicalRecord.create({
+        data: {
+          patientId: patient.id,
+          doctorId: patient.assignedDoctorId!,
+          clinicId: patient.clinicId,
+          recordType: 'CLINICAL_NOTE',
+          encryptedContent: new Uint8Array(ciphertext),
+          iv: new Uint8Array(iv),
+          authTag: new Uint8Array(authTag),
+          diagnosisCodes: [faker.helpers.arrayElement(['J01.90', 'E11.9', 'I10', 'M54.5'])],
+        }
+      });
+    });
+    
+    await prisma.$transaction(recordsToCreate);
+  }
+  console.log('✅ Created Encrypted Medical Records.');
 }
 
 main()
