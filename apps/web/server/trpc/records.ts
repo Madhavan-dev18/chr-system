@@ -38,28 +38,32 @@ export const recordsRouter = createTRPCRouter({
       // The clinical note is encrypted in Node.js memory. The DB only ever sees random bytes.
       const { ciphertext, iv, authTag } = encryptRecord(input.content);
 
-      const record = await ctx.db.medicalRecord.create({
-        data: {
-          patientId: input.patientId,
-          doctorId: userId,
-          recordType: input.recordType,
-          encryptedContent: new Uint8Array(ciphertext),
-          iv: new Uint8Array(iv),
-          authTag: new Uint8Array(authTag),
-          diagnosisCodes: input.diagnosisCodes || [],
-          clinicId,
-        },
-      });
+      const record = await ctx.db.$transaction(async (tx) => {
+        const createdRecord = await tx.medicalRecord.create({
+          data: {
+            patientId: input.patientId,
+            doctorId: userId,
+            recordType: input.recordType,
+            encryptedContent: new Uint8Array(ciphertext),
+            iv: new Uint8Array(iv),
+            authTag: new Uint8Array(authTag),
+            diagnosisCodes: input.diagnosisCodes || [],
+            clinicId,
+          },
+        });
 
-      await auditLog(ctx.db, {
-        userId,
-        clinicId,
-        action: 'CREATE',
-        resource: 'MedicalRecord',
-        resourceId: record.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
+        await auditLog(tx as any, {
+          userId,
+          clinicId,
+          action: 'CREATE',
+          resource: 'MedicalRecord',
+          resourceId: createdRecord.id,
+          ipAddress: ctx.ip,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
+        });
+
+        return createdRecord;
       });
 
       return { id: record.id, createdAt: record.createdAt };

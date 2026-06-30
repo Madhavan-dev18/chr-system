@@ -85,6 +85,16 @@ export const appointmentRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // Use Prisma transactions to prevent double booking race conditions.
       return ctx.db.$transaction(async (tx) => {
+        // Raw SQL for row-level locking on the doctor's existing appointments
+        // to serialize overlapping checks.
+        await tx.$executeRaw`
+          SELECT id FROM "Appointment"
+          WHERE "doctorId" = ${input.doctorId}
+            AND "clinicId" = ${ctx.session.user.clinicId}
+            AND "status" IN ('PENDING', 'CONFIRMED')
+          FOR UPDATE
+        `;
+
         const overlapping = await tx.appointment.findFirst({
           where: {
             doctorId: input.doctorId,
@@ -106,7 +116,7 @@ export const appointmentRouter = createTRPCRouter({
           });
         }
 
-        return tx.appointment.create({
+        const appointment = await tx.appointment.create({
           data: {
             patientId: input.patientId,
             doctorId: input.doctorId,
@@ -118,6 +128,21 @@ export const appointmentRouter = createTRPCRouter({
             status: 'PENDING',
           }
         });
+
+        // Ensure audit log is part of the transaction
+        const { auditLog } = await import('@/lib/audit');
+        await auditLog(tx as any, {
+          userId: ctx.session.user.id,
+          clinicId: ctx.session.user.clinicId,
+          action: 'CREATE',
+          resource: 'Appointment',
+          resourceId: appointment.id,
+          ipAddress: ctx.ip,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
+        });
+
+        return appointment;
       });
     }),
 
@@ -129,23 +154,52 @@ export const appointmentRouter = createTRPCRouter({
       cancelReason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const appointment = await ctx.db.appointment.findUnique({
-        where: { id: input.id, clinicId: ctx.session.user.clinicId }
-      });
+      return ctx.db.$transaction(async (tx) => {
+        // Raw SQL for row-level locking on the appointment to prevent concurrent updates
+        const lockedRows = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM "Appointment"
+          WHERE "id" = ${input.id}
+            AND "clinicId" = ${ctx.session.user.clinicId}
+          FOR UPDATE
+        `;
 
-      if (!appointment) throw new TRPCError({ code: 'NOT_FOUND' });
-
-      // Only Doctor, Admin, Receptionist can confirm/complete. Patients can only cancel.
-      if (ctx.session.user.role === 'PATIENT' && input.status !== 'CANCELLED') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patients can only cancel appointments.' });
-      }
-
-      return ctx.db.appointment.update({
-        where: { id: input.id },
-        data: {
-          status: input.status,
-          cancelReason: input.cancelReason,
+        if (lockedRows.length === 0) {
+          throw new TRPCError({ code: 'NOT_FOUND' });
         }
+
+        const appointment = await tx.appointment.findUnique({
+          where: { id: input.id, clinicId: ctx.session.user.clinicId }
+        });
+
+        if (!appointment) throw new TRPCError({ code: 'NOT_FOUND' });
+
+        // Only Doctor, Admin, Receptionist can confirm/complete. Patients can only cancel.
+        if (ctx.session.user.role === 'PATIENT' && input.status !== 'CANCELLED') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Patients can only cancel appointments.' });
+        }
+
+        const updated = await tx.appointment.update({
+          where: { id: input.id },
+          data: {
+            status: input.status,
+            cancelReason: input.cancelReason,
+          }
+        });
+
+        const { auditLog } = await import('@/lib/audit');
+        await auditLog(tx as any, {
+          userId: ctx.session.user.id,
+          clinicId: ctx.session.user.clinicId,
+          action: 'UPDATE',
+          resource: 'Appointment',
+          resourceId: appointment.id,
+          ipAddress: ctx.ip,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
+          metadata: { status: input.status }
+        });
+
+        return updated;
       });
     }),
 });

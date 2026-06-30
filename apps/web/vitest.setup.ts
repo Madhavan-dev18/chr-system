@@ -1,0 +1,10 @@
+process.env.DATABASE_URL = "postgres://mock:mock@mock:5432/mock";
+process.env.NEXT_PUBLIC_SUPABASE_URL = "https://mock.supabase.co";
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "mock_anon";
+process.env.SUPABASE_SERVICE_ROLE_KEY = "mock_service";
+process.env.UPSTASH_REDIS_REST_URL = "https://mock.upstash.io";
+process.env.UPSTASH_REDIS_REST_TOKEN = "mock_token";
+process.env.AUTH_SECRET = "mock_auth_secret_must_be_long_enough_for_crypto";
+process.env.ACCESS_TOKEN_SECRET = "mock_access_token_secret";
+process.env.RECORD_ENCRYPTION_KEY = "s2MfN4r4KnQVkNOQXKQ0PneYBixSqprhYrQaiiQMt9g=";
+process.env.GEMINI_API_KEY = "mock_gemini";

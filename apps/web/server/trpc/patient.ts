@@ -38,24 +38,28 @@ export const patientRouter = createTRPCRouter({
       const randomHex = Math.floor(Math.random() * 65536).toString(16).padStart(4, '0').toUpperCase();
       const mrn = `MRN-${dateStr}-${randomHex}`;
 
-      const patient = await ctx.db.patient.create({
-        data: {
-          ...input,
-          dob: new Date(input.dob),
-          mrn,
-          clinicId: ctx.session.user.clinicId,
-        },
-      });
+      const patient = await ctx.db.$transaction(async (tx) => {
+        const createdPatient = await tx.patient.create({
+          data: {
+            ...input,
+            dob: new Date(input.dob),
+            mrn,
+            clinicId: ctx.session.user.clinicId,
+          },
+        });
 
-      await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId,
-        action: 'CREATE',
-        resource: 'Patient',
-        resourceId: patient.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
+        await auditLog(tx as any, {
+          userId: ctx.session.user.id,
+          clinicId: ctx.session.user.clinicId,
+          action: 'CREATE',
+          resource: 'Patient',
+          resourceId: createdPatient.id,
+          ipAddress: ctx.ip,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
+        });
+
+        return createdPatient;
       });
 
       return patient;
