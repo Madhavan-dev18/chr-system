@@ -44,7 +44,7 @@ const PHI_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   },
   // Medical Record Numbers (MRN-YYYYMM-XXXX format)
   {
-    pattern: /\bMRN[-:\s#]*[A-Z0-9]+\b/gi,
+    pattern: /\bMRN[-:\s#]*[A-Z0-9]+(?:-[A-Z0-9]+)*\b/gi,
     replacement: '[MRN]',
   },
   // Street addresses: "123 Main St", "456 Oak Avenue"
