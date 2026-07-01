@@ -98,7 +98,11 @@ export default auth(async (req) => {
   // ── 4. Role-based access control ──────────────────────────────
   if (isLoggedIn && role && isDashboardPath(pathname)) {
     const allowedPrefix = ROLE_PREFIX[role];
-    if (!pathname.startsWith(allowedPrefix)) {
+    
+    // Exception: Admins can access receptionist patient routes (for patient registration)
+    const isAdminPatientRoute = role === 'ADMIN' && pathname.startsWith('/receptionist/patients');
+    
+    if (!pathname.startsWith(allowedPrefix) && !isAdminPatientRoute) {
       return Response.redirect(new URL('/unauthorized', nextUrl));
     }
   }

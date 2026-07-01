@@ -24,9 +24,6 @@ export const userRouter = createTRPCRouter({
   createStaff: adminProcedure
     .input(CreateStaffSchema)
     .mutation(async ({ ctx, input }) => {
-      if (input.role === Role.PATIENT) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot assign PATIENT role' });
-      }
       const existing = await ctx.db.user.findUnique({
         where: { email: input.email.toLowerCase() },
       });

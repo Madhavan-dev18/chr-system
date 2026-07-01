@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack -p 3000",
-    "build": "next build",
+    "build": "node -e \"const env = { ...process.env, HOME: process.env.TEMP || '/tmp', USERPROFILE: process.env.TEMP || '/tmp', APPDATA: process.env.TEMP || '/tmp', LOCALAPPDATA: process.env.TEMP || '/tmp' }; require('child_process').execSync('next build', { env, stdio: 'inherit' })\"",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
