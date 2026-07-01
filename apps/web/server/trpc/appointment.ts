@@ -1,209 +1,184 @@
 import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
-import { AppointmentStatus, AppointmentType, Role } from '@chr/db';
 import { TRPCError } from '@trpc/server';
+import { auditLog } from '@/lib/audit';
+
+const AppointmentStatus = z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+
+const CreateAppointmentSchema = z.object({
+  patientId: z.string().uuid(),
+  doctorId: z.string().uuid(),
+  scheduledStart: z.string().refine((v) => new Date(v) > new Date(), {
+    message: 'Appointment must be scheduled in the future',
+  }),
+  durationMinutes: z.number().int().min(5).max(480).default(30),
+  appointmentType: z.enum(['CONSULTATION', 'FOLLOW_UP', 'PROCEDURE', 'EMERGENCY', 'LAB_REVIEW']),
+  chiefComplaint: z.string().max(500).optional(),
+  notes: z.string().max(2000).optional(),
+});
 
 export const appointmentRouter = createTRPCRouter({
-  
-  // List appointments (filterable by date range, doctor, status)
-  list: clinicScopedProcedure
-    .input(z.object({
-      startDate: z.string().datetime().optional(),
-      endDate: z.string().datetime().optional(),
-      doctorId: z.string().uuid().optional(),
-      patientId: z.string().uuid().optional(),
-      status: z.nativeEnum(AppointmentStatus).optional(),
-    }))
-    .query(async ({ ctx, input }) => {
-      // Patients can only see their own appointments
-      if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await ctx.db.patient.findUnique({
-          where: { userId: ctx.session.user.id },
-        });
-        if (!patientRecord) return [];
-        input.patientId = patientRecord.id;
+  create: clinicScopedProcedure
+    .input(CreateAppointmentSchema)
+    .mutation(async ({ ctx, input }) => {
+      const { role, id: userId, clinicId } = ctx.session!.user;
+
+      if (!['ADMIN', 'RECEPTIONIST', 'DOCTOR'].includes(role)) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
-      const where: any = { clinicId: ctx.session.user.clinicId };
-      
-      if (input.doctorId) where.doctorId = input.doctorId;
-      if (input.patientId) where.patientId = input.patientId;
-      if (input.status) where.status = input.status;
-      if (input.startDate || input.endDate) {
-        where.scheduledStart = {};
-        if (input.startDate) where.scheduledStart.gte = new Date(input.startDate);
-        if (input.endDate) where.scheduledStart.lte = new Date(input.endDate);
-      }
+      // Conflict check: doctor already has appointment within the window
+      const scheduledStart = new Date(input.scheduledStart);
+      const scheduledEnd = new Date(scheduledStart.getTime() + input.durationMinutes * 60_000);
 
-      return ctx.db.appointment.findMany({
-        where,
-        include: {
-          patient: { select: { id: true, firstName: true, lastName: true, mrn: true, dob: true } },
-          doctor: { select: { id: true, email: true } }, // In a real app we'd have a Provider profile
+      const conflict = await ctx.db.appointment.findFirst({
+        where: {
+          clinicId,
+          doctorId: input.doctorId,
+          status: { in: ['PENDING', 'CONFIRMED'] },
+          OR: [
+            { scheduledStart: { gte: scheduledStart, lt: scheduledEnd } },
+            {
+              AND: [
+                { scheduledStart: { lt: scheduledStart } },
+                { scheduledEnd: { gt: scheduledStart } },
+              ],
+            },
+          ],
         },
-        orderBy: { scheduledStart: 'asc' },
-      });
-    }),
-
-  // Get single appointment
-  getById: clinicScopedProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      const appointment = await ctx.db.appointment.findUnique({
-        where: { id: input.id, clinicId: ctx.session.user.clinicId },
-        include: {
-          patient: true,
-          doctor: { select: { id: true, email: true } },
-        }
       });
 
-      if (!appointment) throw new TRPCError({ code: 'NOT_FOUND' });
-
-      // Enforce PATIENT privacy
-      if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await ctx.db.patient.findUnique({
-          where: { userId: ctx.session.user.id },
+      if (conflict) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Doctor already has an appointment during this time slot.',
         });
-        if (appointment.patientId !== patientRecord?.id) {
-          throw new TRPCError({ code: 'FORBIDDEN' });
-        }
       }
+
+      const appointment = await ctx.db.appointment.create({
+        data: {
+          patientId: input.patientId,
+          doctorId: input.doctorId,
+          scheduledStart,
+          scheduledEnd,
+          type: input.appointmentType,
+          reason: input.chiefComplaint,
+          notes: input.notes,
+          status: 'PENDING',
+          clinicId,
+        },
+      });
+
+      // Notify patient
+      const patient = await ctx.db.patient.findUnique({
+        where: { id: input.patientId },
+        select: { userId: true, firstName: true },
+      });
+      if (patient?.userId) {
+        await ctx.db.notification.create({
+          data: {
+            userId: patient.userId,
+            clinicId,
+            type: 'APPOINTMENT_REMINDER',
+            title: 'Appointment Scheduled',
+            message: `Your appointment is scheduled for ${scheduledStart.toLocaleString()}.`,
+            link: `/patient/appointments`,
+          },
+        });
+      }
+
+      await auditLog(ctx.db, {
+        userId, clinicId,
+        action: 'CREATE', resource: 'Appointment',
+        resourceId: appointment.id,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
+        metadata: { type: input.appointmentType, scheduledStart: input.scheduledStart },
+      });
 
       return appointment;
     }),
 
-  // Book new appointment
-  create: clinicScopedProcedure
+  list: clinicScopedProcedure
     .input(z.object({
-      patientId: z.string().uuid(),
-      doctorId: z.string().uuid(),
-      scheduledStart: z.string().datetime(),
-      scheduledEnd: z.string().datetime(),
-      type: z.nativeEnum(AppointmentType).default(AppointmentType.CONSULTATION),
-      reason: z.string().optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      // Use Prisma transactions to prevent double booking race conditions.
-      const result = await ctx.db.$transaction(async (tx: any) => {
-        // Raw SQL for row-level locking on the doctor's existing appointments
-        // to serialize overlapping checks.
-        await tx.$executeRaw`
-          SELECT id FROM "Appointment"
-          WHERE "doctorId" = ${input.doctorId}
-            AND "clinicId" = ${ctx.session.user.clinicId}
-            AND "status" IN ('PENDING', 'CONFIRMED')
-          FOR UPDATE
-        `;
+      patientId: z.string().uuid().optional(),
+      doctorId: z.string().uuid().optional(),
+      status: AppointmentStatus.optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      limit: z.number().min(1).max(200).default(50),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const { role, id: userId, clinicId } = ctx.session!.user;
 
-        const overlapping = await tx.appointment.findFirst({
-          where: {
-            doctorId: input.doctorId,
-            status: { in: ['PENDING', 'CONFIRMED'] },
-            clinicId: ctx.session.user.clinicId,
-            OR: [
-              {
-                scheduledStart: { lt: new Date(input.scheduledEnd) },
-                scheduledEnd: { gt: new Date(input.scheduledStart) },
-              }
-            ]
-          }
-        });
+      const where: Record<string, unknown> = {
+        clinicId,
+        ...(input?.status && { status: input.status }),
+        ...(input?.patientId && { patientId: input.patientId }),
+        ...(input?.from || input?.to
+          ? {
+              scheduledStart: {
+                ...(input?.from && { gte: new Date(input.from) }),
+                ...(input?.to && { lte: new Date(input.to) }),
+              },
+            }
+          : {}),
+      };
 
-        if (overlapping) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'This time slot is already booked for the selected doctor.',
-          });
-        }
+      if (role === 'DOCTOR') where.doctorId = userId;
+      else if (role === 'PATIENT') {
+        const patient = await ctx.db.patient.findFirst({ where: { userId, clinicId } });
+        if (!patient) return { appointments: [] };
+        where.patientId = patient.id;
+      } else if (role === 'NURSE') {
+        where.doctor = { assignedNurseId: userId };
+      } else if (!['ADMIN', 'RECEPTIONIST'].includes(role)) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
 
-        const appointment = await tx.appointment.create({
-          data: {
-            patientId: input.patientId,
-            doctorId: input.doctorId,
-            clinicId: ctx.session.user.clinicId,
-            scheduledStart: new Date(input.scheduledStart),
-            scheduledEnd: new Date(input.scheduledEnd),
-            type: input.type,
-            reason: input.reason,
-            status: 'PENDING',
-          }
-        });
-
-        return appointment;
+      const appointments = await ctx.db.appointment.findMany({
+        where,
+        orderBy: { scheduledStart: 'asc' },
+        take: input?.limit ?? 50,
+        include: {
+          patient: { select: { id: true, firstName: true, lastName: true, mrn: true } },
+          doctor: { select: { id: true, email: true } },
+        },
       });
 
-      const { auditLog } = await import('@/lib/audit');
-      await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId,
-        action: 'CREATE',
-        resource: 'Appointment',
-        resourceId: result.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
-      });
-
-      return result;
+      return { appointments };
     }),
 
-  // Update status (Confirm, Cancel, Complete)
   updateStatus: clinicScopedProcedure
     .input(z.object({
       id: z.string().uuid(),
-      status: z.nativeEnum(AppointmentStatus),
-      cancelReason: z.string().optional(),
+      status: AppointmentStatus,
+      cancellationReason: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const result = await ctx.db.$transaction(async (tx: any) => {
-        // Raw SQL for row-level locking on the appointment to prevent concurrent updates
-        const lockedRows = await tx.$queryRaw<{ id: string }[]>`
-          SELECT id FROM "Appointment"
-          WHERE "id" = ${input.id}
-            AND "clinicId" = ${ctx.session.user.clinicId}
-          FOR UPDATE
-        `;
+      const { role, id: userId, clinicId } = ctx.session!.user;
 
-        if (lockedRows.length === 0) {
-          throw new TRPCError({ code: 'NOT_FOUND' });
-        }
+      const appt = await ctx.db.appointment.findUnique({ where: { id: input.id } });
+      if (!appt || appt.clinicId !== clinicId) throw new TRPCError({ code: 'NOT_FOUND' });
 
-        const appointment = await tx.appointment.findUnique({
-          where: { id: input.id, clinicId: ctx.session.user.clinicId }
-        });
+      if (role === 'DOCTOR' && appt.doctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+      if (!['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'NURSE'].includes(role)) throw new TRPCError({ code: 'FORBIDDEN' });
 
-        if (!appointment) throw new TRPCError({ code: 'NOT_FOUND' });
-
-        // Only Doctor, Admin, Receptionist can confirm/complete. Patients can only cancel.
-        if (ctx.session.user.role === 'PATIENT' && input.status !== 'CANCELLED') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Patients can only cancel appointments.' });
-        }
-
-        const updated = await tx.appointment.update({
-          where: { id: input.id },
-          data: {
-            status: input.status,
-            cancelReason: input.cancelReason,
-          }
-        });
-
-        return updated;
+      const updated = await ctx.db.appointment.update({
+        where: { id: input.id },
+        data: {
+          status: input.status,
+          ...(input.cancellationReason && { cancelReason: input.cancellationReason }),
+        },
       });
 
-      const { auditLog } = await import('@/lib/audit');
       await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId,
-        action: 'UPDATE',
-        resource: 'Appointment',
-        resourceId: result.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
-        metadata: { status: input.status }
+        userId, clinicId,
+        action: 'UPDATE', resource: 'Appointment',
+        resourceId: input.id,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
+        metadata: { newStatus: input.status },
       });
 
-      return result;
+      return updated;
     }),
 });
-

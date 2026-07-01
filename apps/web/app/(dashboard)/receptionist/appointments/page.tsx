@@ -15,14 +15,16 @@ export default function ReceptionistAppointments() {
   const [reason, setReason] = useState('');
 
   // Fetch appointments for the selected date
-  const { data: appointments, refetch } = trpc.appointments.list.useQuery({
-    startDate: new Date(`${selectedDate}T00:00:00.000Z`).toISOString(),
-    endDate: new Date(`${selectedDate}T23:59:59.999Z`).toISOString(),
+  const { data: appointmentsData, refetch } = trpc.appointments.list.useQuery({
+    from: new Date(`${selectedDate}T00:00:00.000Z`).toISOString(),
+    to: new Date(`${selectedDate}T23:59:59.999Z`).toISOString(),
   });
+  const appointments = appointmentsData?.appointments ?? [];
 
   // Mock fetching patients & doctors for the dropdown
   // In a real app we'd have dedicated TRPC endpoints for typeahead searching
-  const { data: patients } = trpc.patients.list.useQuery({});
+  const { data: patientsData } = trpc.patients.list.useQuery({});
+  const patients = patientsData?.patients ?? [];
   
   const createMutation = trpc.appointments.create.useMutation({
     onSuccess: () => {
@@ -48,9 +50,9 @@ export default function ReceptionistAppointments() {
       patientId,
       doctorId,
       scheduledStart: startIso,
-      scheduledEnd: endIso,
-      reason,
-      type: 'CONSULTATION',
+      durationMinutes: 30,
+      chiefComplaint: reason,
+      appointmentType: 'CONSULTATION',
     });
   };
 

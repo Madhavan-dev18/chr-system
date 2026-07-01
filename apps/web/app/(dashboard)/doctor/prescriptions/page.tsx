@@ -13,10 +13,11 @@ export default function DoctorPrescriptions() {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Mock patient list
-  const { data: patients } = trpc.patients.list.useQuery({});
+  const { data: patientsData } = trpc.patients.list.useQuery({});
+  const patients = patientsData?.patients ?? [];
   
   // List prescriptions for the selected patient
-  const { data: prescriptions, refetch } = trpc.prescriptions.list.useQuery(
+  const { data: prescriptions, refetch } = trpc.prescriptions.listByPatient.useQuery(
     { patientId },
     { enabled: !!patientId }
   );
@@ -33,7 +34,7 @@ export default function DoctorPrescriptions() {
     }
   });
 
-  const discontinueMutation = trpc.prescriptions.discontinue.useMutation({
+  const discontinueMutation = trpc.prescriptions.updateStatus.useMutation({
     onSuccess: () => refetch()
   });
 
@@ -43,11 +44,12 @@ export default function DoctorPrescriptions() {
 
     createMutation.mutate({
       patientId,
-      medicationName,
-      dosage,
-      unit,
-      frequency,
-      startDate: new Date(`${startDate}T00:00:00.000Z`).toISOString(),
+      diagnosis: 'General Prescription',
+      medicationName: medicationName,
+      dosage: dosage,
+      unit: unit,
+      frequency: frequency,
+      durationDays: 30
     });
   };
 
@@ -193,7 +195,7 @@ export default function DoctorPrescriptions() {
 
                       {rx.isActive ? (
                         <button 
-                          onClick={() => discontinueMutation.mutate({ id: rx.id })}
+                          onClick={() => discontinueMutation.mutate({ id: rx.id, status: 'CANCELLED' })}
                           className="px-4 py-2 text-[#E84545] font-bold text-xs rounded-lg shadow-[4px_4px_8px_#C8CAD4,-4px_-4px_8px_#FFFFFF] bg-[#EEF0F5] hover:bg-[#E84545] hover:text-white transition-colors"
                         >
                           Discontinue

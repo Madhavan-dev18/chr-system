@@ -1,62 +1,42 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# Dependencies
 node_modules/
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+.pnp
+.pnp.js
 
-# testing
-/coverage
-
-# next.js
+# Next.js
 .next/
 out/
+build/
 
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# environment variables
+# Env files — NEVER commit secrets
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+.env.production
 
-# local database files
-*.db
-*.db-journal
-*.sqlite
-*.sqlite3
+# Prisma
+packages/db/generated/
 
-# ide / editor
+# Test outputs
+coverage/
+.vitest/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# gemini agent artifacts
-.gemini/
-scratch/
-brain/
+# Vercel
+.vercel
+
+# Sentry
+.sentryclirc

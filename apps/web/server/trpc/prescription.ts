@@ -3,156 +3,145 @@ import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
 import { auditLog } from '@/lib/audit';
 
-export const prescriptionRouter = createTRPCRouter({
-  
-  // List prescriptions for a patient
-  list: clinicScopedProcedure
-    .input(z.object({
-      patientId: z.string().uuid(),
-      activeOnly: z.boolean().default(false),
-    }))
-    .query(async ({ ctx, input }) => {
-      // Enforce PATIENT privacy
-      if (ctx.session.user.role === 'PATIENT') {
-        const patientRecord = await ctx.db.patient.findUnique({
-          where: { userId: ctx.session.user.id },
-        });
-        if (input.patientId !== patientRecord?.id) {
-          throw new TRPCError({ code: 'FORBIDDEN' });
-        }
-      }
-
-      const where: any = { 
-        clinicId: ctx.session.user.clinicId,
-        patientId: input.patientId 
-      };
-      
-      if (input.activeOnly) {
-        where.isActive = true;
-      }
-
-      return ctx.db.prescription.findMany({
-        where,
-        include: {
-          doctor: { select: { id: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    }),
-
-  // Create a new prescription
-  create: clinicScopedProcedure
-    .input(z.object({
-      patientId: z.string().uuid(),
-      medicationName: z.string().min(2),
-      dosage: z.string(),
-      unit: z.string(),
-      frequency: z.string(),
-      route: z.string().optional(),
-      startDate: z.string().datetime(),
-      endDate: z.string().datetime().optional(),
-      notes: z.string().optional(),
-      icd10Code: z.string().optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      // Only Doctors can prescribe
-      if (ctx.session.user.role !== 'DOCTOR') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Doctors can create prescriptions.' });
-      }
-
-      // Check allergies
-      const patient = await ctx.db.patient.findUnique({
-        where: { id: input.patientId, clinicId: ctx.session.user.clinicId }
-      });
-
-      if (!patient) throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient not found' });
-
-      // Basic case-insensitive allergy check
-      const medNameLower = input.medicationName.toLowerCase();
-      const hasAllergy = patient.allergies.some((a: any) => medNameLower.includes(a.toLowerCase()));
-      
-      if (hasAllergy) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `CONTRAINDICATED: Patient has an allergy matching ${input.medicationName}.`
-        });
-      }
-
-      const result = await ctx.db.$transaction(async (tx: any) => {
-        const prescription = await tx.prescription.create({
-          data: {
-            patientId: input.patientId,
-            doctorId: ctx.session.user.id,
-            clinicId: ctx.session.user.clinicId,
-            medicationName: input.medicationName,
-            dosage: input.dosage,
-            unit: input.unit,
-            frequency: input.frequency,
-            route: input.route,
-            startDate: new Date(input.startDate),
-            endDate: input.endDate ? new Date(input.endDate) : undefined,
-            notes: input.notes,
-            icd10Code: input.icd10Code,
-            isActive: true,
-          }
-        });
-
-        return prescription;
-      });
-
-      await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId,
-        action: 'CREATE',
-        resource: 'Prescription',
-        resourceId: result.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
-      });
-
-      return result;
-    }),
-
-  // Discontinue a prescription
-  discontinue: clinicScopedProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      if (ctx.session.user.role !== 'DOCTOR') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Doctors can discontinue prescriptions.' });
-      }
-
-      const prescription = await ctx.db.prescription.findUnique({
-        where: { id: input.id, clinicId: ctx.session.user.clinicId }
-      });
-
-      if (!prescription) throw new TRPCError({ code: 'NOT_FOUND' });
-
-      const result = await ctx.db.$transaction(async (tx: any) => {
-        const updated = await tx.prescription.update({
-          where: { id: input.id },
-          data: {
-            isActive: false,
-            discontinuedAt: new Date(),
-            discontinuedById: ctx.session.user.id,
-          }
-        });
-
-        return updated;
-      });
-
-      await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId,
-        action: 'DELETE',
-        resource: 'Prescription (Discontinue)',
-        resourceId: result.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
-      });
-
-      return result;
-    }),
+const CreatePrescriptionSchema = z.object({
+  patientId: z.string().uuid(),
+  medicationName: z.string().min(1).max(200),
+  dosage: z.string().min(1).max(100),
+  unit: z.string().min(1).max(50),
+  frequency: z.string().min(1).max(100),
+  route: z.enum(['ORAL', 'IV', 'IM', 'SC', 'TOPICAL', 'INHALED', 'SUBLINGUAL', 'OTHER']).default('ORAL'),
+  durationDays: z.number().int().min(1).max(365),
+  diagnosis: z.string().min(1).max(500),
+  notes: z.string().max(2000).optional(),
 });
 
+export const prescriptionRouter = createTRPCRouter({
+  create: clinicScopedProcedure
+    .input(CreatePrescriptionSchema)
+    .mutation(async ({ ctx, input }) => {
+      const { role, id: userId, clinicId } = ctx.session!.user;
+      if (role !== 'DOCTOR') throw new TRPCError({ code: 'FORBIDDEN', message: 'Only doctors can prescribe medications.' });
+
+      const patient = await ctx.db.patient.findUnique({ where: { id: input.patientId } });
+      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (patient.assignedDoctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+
+      // Allergy cross-check
+      const allergyHits = patient.allergies.filter((a: string) => input.medicationName.toLowerCase().includes(a.toLowerCase()));
+      if (allergyHits.length > 0) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Allergy conflict detected for: ${input.medicationName}. Override requires explicit confirmation.`,
+        });
+      }
+
+      const startDate = new Date();
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + input.durationDays);
+
+      const prescription = await ctx.db.prescription.create({
+        data: {
+          patientId: input.patientId,
+          doctorId: userId,
+          clinicId,
+          medicationName: input.medicationName,
+          dosage: input.dosage,
+          unit: input.unit,
+          frequency: input.frequency,
+          route: input.route,
+          startDate,
+          endDate,
+          isActive: true,
+          notes: input.notes,
+          icd10Code: input.diagnosis,
+        },
+      });
+
+      // Notify patient
+      const patient2 = await ctx.db.patient.findUnique({
+        where: { id: input.patientId },
+        select: { userId: true },
+      });
+      if (patient2?.userId) {
+        await ctx.db.notification.create({
+          data: {
+            userId: patient2.userId,
+            clinicId,
+            type: 'SYSTEM',
+            title: 'New Prescription',
+            message: `Your doctor has issued a new prescription: ${input.medicationName}.`,
+            link: '/patient/records',
+          },
+        });
+      }
+
+      await auditLog(ctx.db, {
+        userId, clinicId,
+        action: 'CREATE', resource: 'Prescription',
+        resourceId: prescription.id,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
+        metadata: { medicationName: input.medicationName, diagnosis: input.diagnosis },
+      });
+
+      return prescription;
+    }),
+
+  listByPatient: clinicScopedProcedure
+    .input(z.object({ patientId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const { role, id: userId, clinicId } = ctx.session!.user;
+
+      const patient = await ctx.db.patient.findUnique({ where: { id: input.patientId } });
+      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (role === 'DOCTOR' && patient.assignedDoctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+      if (role === 'PATIENT' && patient.userId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+
+      await auditLog(ctx.db, {
+        userId, clinicId,
+        action: 'VIEW', resource: 'Prescription(list)',
+        resourceId: input.patientId,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
+      });
+
+      return ctx.db.prescription.findMany({
+        where: { patientId: input.patientId, clinicId },
+        orderBy: { createdAt: 'desc' },
+        include: { doctor: { select: { id: true, email: true } } },
+      });
+    }),
+
+  updateStatus: clinicScopedProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      status: z.enum(['ACTIVE', 'CANCELLED']),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { role, id: userId, clinicId } = ctx.session!.user;
+      if (!['DOCTOR', 'ADMIN'].includes(role)) throw new TRPCError({ code: 'FORBIDDEN' });
+
+      const prescription = await ctx.db.prescription.findUnique({ where: { id: input.id } });
+      if (!prescription || prescription.clinicId !== clinicId) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (role === 'DOCTOR' && prescription.doctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+
+      const updated = await ctx.db.prescription.update({
+        where: { id: input.id },
+        data: { 
+          isActive: input.status === 'ACTIVE',
+          ...(input.status === 'CANCELLED' && {
+            discontinuedAt: new Date(),
+            discontinuedById: userId
+          })
+        },
+      });
+
+      await auditLog(ctx.db, {
+        userId, clinicId,
+        action: 'UPDATE', resource: 'Prescription',
+        resourceId: input.id,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
+        metadata: { newStatus: input.status },
+      });
+
+      return updated;
+    }),
+});

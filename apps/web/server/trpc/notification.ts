@@ -12,7 +12,7 @@ export const notificationRouter = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       const where = { 
-        userId: ctx.session.user.id,
+        userId: ctx.session!.user.id,
         ...(input.unreadOnly ? { isRead: false } : {})
       };
 
@@ -27,7 +27,7 @@ export const notificationRouter = createTRPCRouter({
   markAllAsRead: protectedProcedure
     .mutation(async ({ ctx }) => {
       return ctx.db.notification.updateMany({
-        where: { userId: ctx.session.user.id, isRead: false },
+        where: { userId: ctx.session!.user.id, isRead: false },
         data: { isRead: true },
       });
     }),
@@ -40,7 +40,7 @@ export const notificationRouter = createTRPCRouter({
         where: { id: input.id }
       });
 
-      if (!notification || notification.userId !== ctx.session.user.id) {
+      if (!notification || notification.userId !== ctx.session!.user.id) {
         throw new TRPCError({ code: 'NOT_FOUND' });
       }
 

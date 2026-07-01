@@ -1,70 +1,122 @@
 import { z } from 'zod';
-import { createTRPCRouter, clinicScopedProcedure } from './_base';
+import { createTRPCRouter, adminProcedure, protectedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
+import { Role } from '@chr/db';
 import bcrypt from 'bcryptjs';
+import { auditLog } from '@/lib/audit';
 
-// OWASP: Strict Input Validation Schema
-const CreateUserSchema = z.object({
-  email: z.string().email('Invalid email address format'),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number')
-    .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
+const PasswordSchema = z
+  .string()
+  .min(8, 'At least 8 characters')
+  .regex(/[A-Z]/, 'Must contain uppercase letter')
+  .regex(/[a-z]/, 'Must contain lowercase letter')
+  .regex(/[0-9]/, 'Must contain number')
+  .regex(/[^A-Za-z0-9]/, 'Must contain special character');
+
+const CreateStaffSchema = z.object({
+  email: z.string().email(),
+  password: PasswordSchema,
   role: z.enum(['ADMIN', 'DOCTOR', 'NURSE', 'PATIENT', 'RECEPTIONIST', 'LAB_TECH']),
 });
 
 export const userRouter = createTRPCRouter({
-  
-  // Demonstration of clinic-scoped access and rigid input validation
-  createStaff: clinicScopedProcedure
-    .input(CreateUserSchema)
+  /** Create a staff account (Admin only) */
+  createStaff: adminProcedure
+    .input(CreateStaffSchema)
     .mutation(async ({ ctx, input }) => {
-      
-      // Enforce that only ADMINs can create staff
-      if (ctx.session.user.role !== 'ADMIN') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'Only Administrators can provision new staff accounts',
-        });
+      if (input.role === Role.PATIENT) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot assign PATIENT role' });
       }
-
-      // Check if user already exists
-      const existingUser = await ctx.db.user.findUnique({
+      const existing = await ctx.db.user.findUnique({
         where: { email: input.email.toLowerCase() },
       });
-
-      if (existingUser) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'A user with this email already exists',
-        });
+      if (existing) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Email already in use.' });
       }
 
-      // Securely hash the password (OWASP standard 12 rounds)
       const passwordHash = await bcrypt.hash(input.password, 12);
 
-      // Create the user inherently tied to the invoking Admin's clinicId
-      const newUser = await ctx.db.user.create({
+      const user = await ctx.db.user.create({
         data: {
           email: input.email.toLowerCase(),
           passwordHash,
           role: input.role,
-          clinicId: ctx.session.user.clinicId, // Forced scope from clinicScopedProcedure
+          clinicId: ctx.session!.user.clinicId,
         },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          clinicId: true,
-          createdAt: true,
-        },
+        select: { id: true, email: true, role: true, createdAt: true },
       });
 
-      return newUser;
+      await auditLog(ctx.db, {
+        userId: ctx.session!.user.id,
+        clinicId: ctx.session!.user.clinicId,
+        action: 'CREATE',
+        resource: 'User',
+        resourceId: user.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+        metadata: { role: input.role },
+      });
+
+      return user;
     }),
 
-});
+  /** Get the current user's own profile */
+  me: protectedProcedure.query(async ({ ctx }) => {
+    const user = await ctx.db.user.findUnique({
+      where: { id: ctx.session!.user.id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        clinicId: true,
+        mfaEnabled: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
+    });
 
+    if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found.' });
+    return user;
+  }),
+
+  /** Change own password */
+  changePassword: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().min(1),
+        newPassword: PasswordSchema,
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session!.user.id },
+        select: { passwordHash: true },
+      });
+
+      if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      const valid = await bcrypt.compare(input.currentPassword, user.passwordHash);
+      if (!valid) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Current password is incorrect.' });
+      }
+
+      const newHash = await bcrypt.hash(input.newPassword, 12);
+      await ctx.db.user.update({
+        where: { id: ctx.session!.user.id },
+        data: { passwordHash: newHash, version: { increment: 1 } },
+      });
+
+      await auditLog(ctx.db, {
+        userId: ctx.session!.user.id,
+        clinicId: ctx.session!.user.clinicId,
+        action: 'UPDATE',
+        resource: 'User.Password',
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+      });
+
+      return { success: true };
+    }),
+});

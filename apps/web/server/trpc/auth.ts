@@ -7,8 +7,8 @@ export const authRouter = createTRPCRouter({
   logout: protectedProcedure.mutation(async ({ ctx }) => {
     // Audit log the logout
     await auditLog(ctx.db, {
-      userId: ctx.session.user.id,
-      clinicId: ctx.session.user.clinicId || undefined,
+      userId: ctx.session!.user.id,
+      clinicId: ctx.session!.user.clinicId || undefined,
       action: 'LOGOUT',
       resource: 'Auth',
       ipAddress: ctx.ip,
@@ -25,14 +25,14 @@ export const authRouter = createTRPCRouter({
     const { encryptMfaSecret } = await import('@/lib/crypto');
 
     const secret = authenticator.generateSecret();
-    const otpauth = authenticator.keyuri(ctx.session.user.email, 'CHR System', secret);
+    const otpauth = authenticator.keyuri(ctx.session!.user.email, 'CHR System', secret);
     const qrCodeUrl = await qrcode.toDataURL(otpauth);
 
     const { ciphertext, iv, authTag } = encryptMfaSecret(secret);
     const encryptedBlob = Buffer.concat([iv, authTag, ciphertext]);
 
     await ctx.db.user.update({
-      where: { id: ctx.session.user.id },
+      where: { id: ctx.session!.user.id },
       data: { mfaSecret: encryptedBlob, mfaEnabled: false },
     });
 
@@ -46,7 +46,7 @@ export const authRouter = createTRPCRouter({
       const { decryptMfaSecret } = await import('@/lib/crypto');
 
       const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id },
+        where: { id: ctx.session!.user.id },
         select: { mfaSecret: true },
       });
 
@@ -69,13 +69,13 @@ export const authRouter = createTRPCRouter({
       }
 
       await ctx.db.user.update({
-        where: { id: ctx.session.user.id },
+        where: { id: ctx.session!.user.id },
         data: { mfaEnabled: true },
       });
 
       await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId || undefined,
+        userId: ctx.session!.user.id,
+        clinicId: ctx.session!.user.clinicId || undefined,
         action: 'UPDATE',
         resource: 'User.MFA',
         ipAddress: ctx.ip,

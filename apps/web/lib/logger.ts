@@ -5,29 +5,29 @@ const isDev = env.NODE_ENV === 'development';
 
 export const logger = pino({
   level: isDev ? 'debug' : 'info',
-  redact: [
-    'password',
-    'passwordHash',
-    'mfaSecret',
-    'token',
-    'accessToken',
-    'refreshToken',
-    'authorization',
-    'req.headers.authorization',
-    'req.headers.cookie'
-  ],
-  transport: isDev
+  ...(isDev
     ? {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          ignore: 'pid,hostname',
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            colorize: true,
+            translateTime: 'HH:MM:ss.l',
+            ignore: 'pid,hostname',
+          },
         },
       }
-    : undefined,
-  formatters: {
-    level: (label) => {
-      return { level: label };
-    },
-  },
+    : {
+        // In production: emit JSON for log aggregation (Datadog, CloudWatch, etc.)
+        formatters: {
+          level(label: string) {
+            return { level: label };
+          },
+        },
+        timestamp: pino.stdTimeFunctions.isoTime,
+      }),
 });
+
+/** Create a child logger scoped to a specific module */
+export function getLogger(module: string) {
+  return logger.child({ module });
+}

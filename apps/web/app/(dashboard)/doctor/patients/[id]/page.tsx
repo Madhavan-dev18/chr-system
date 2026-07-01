@@ -1,142 +1,186 @@
+import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
-import { redirect } from 'next/navigation';
+import { prisma } from '@/lib/prisma';
+import { TopBar } from '@/components/layout/TopBar';
+import { Badge } from '@/components/ui/Badge';
+import { formatDate, formatDateTime, calculateAge } from '@/lib/utils';
 import Link from 'next/link';
-import { PatientChartClient } from './PatientChartClient';
+import { FileText, Activity, Pill, FlaskConical, Calendar, User } from 'lucide-react';
 
-type PageProps = {
-  params: Promise<{ id: string }>;
-};
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const patient = await prisma.patient.findUnique({ where: { id }, select: { firstName: true, lastName: true } });
+  return { title: patient ? `${patient.firstName} ${patient.lastName} — Chart` : 'Patient Chart' };
+}
 
-export default async function DoctorPatientDetail({ params }: PageProps) {
+export default async function PatientChartPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const session = await auth();
-  
-  if (session?.user?.role !== 'DOCTOR') {
-    redirect('/unauthorized');
-  }
+  if (!session?.user || !['DOCTOR', 'NURSE', 'ADMIN'].includes(session.user.role)) redirect('/unauthorized');
 
-  // NOTE: In a real implementation, we would query the patient and their decrypted records via tRPC.
-  const resolvedParams = await params;
-  const mrn = resolvedParams.id; // For demo purposes, we're passing MRN in the URL
+  const patient = await prisma.patient.findUnique({
+    where: { id, clinicId: session.user.clinicId! },
+    include: {
+      assignedDoctor: { select: { email: true } },
+      assignedNurse: { select: { email: true } },
+      vitals: { orderBy: { recordedAt: 'desc' }, take: 5 },
+      medicalRecords: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' }, take: 10,
+        select: { id: true, recordType: true, createdAt: true, diagnosisCodes: true },
+      },
+      prescriptions: { orderBy: { createdAt: 'desc' }, take: 5,
+        include: { doctor: { select: { email: true } } } },
+      labResults: { orderBy: { createdAt: 'desc' }, take: 5,
+        include: { orderedBy: { select: { email: true } } } },
+      appointments: {
+        where: { status: { in: ['PENDING', 'CONFIRMED'] } },
+        orderBy: { scheduledStart: 'asc' }, take: 5,
+      },
+    },
+  });
+
+  if (!patient || patient.deletedAt) notFound();
+
+  const latestVitals = patient.vitals[0];
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
-      {/* Header and Vitals handled by Client Component below */}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Column: Clinical Encounter (SOAP Note) */}
-        <div className="lg:col-span-2 space-y-6">
-          <div 
-            className="rounded-3xl p-6"
-            style={{
-              background: '#F2F4FA',
-              boxShadow: '6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF',
-            }}
-          >
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-[#1E2035]">New Clinical Note</h2>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#4A90D9]/10 text-[#4A90D9]">
-                SOAP Note
-              </span>
+    <>
+      <TopBar
+        title={`${patient.firstName} ${patient.lastName}`}
+        subtitle={`MRN: ${patient.mrn} · ${calculateAge(patient.dob)}y · ${patient.gender}`}
+      />
+      <div className="p-6 space-y-5">
+        {/* Demographics card */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="card col-span-2">
+            <div className="flex items-center gap-2 mb-4">
+              <User className="w-4 h-4 text-accent" />
+              <h2 className="font-bold text-foreground">Demographics</h2>
             </div>
-
-            <textarea 
-              className="w-full h-64 p-4 text-sm text-[#1E2035] rounded-xl outline-none resize-none mb-6"
-              placeholder="Enter patient symptoms, history of present illness, and observations..."
-              defaultValue="Patient presents with severe left arm pain and shortness of breath that began 30 minutes ago. Diaphoretic. History of hypertension."
-              style={{
-                background: '#EEF0F5',
-                boxShadow: 'inset 4px 4px 8px #C8CAD4, inset -4px -4px 8px #FFFFFF',
-              }}
-            />
-
-            <div className="flex justify-between items-center">
-              <button 
-                className="px-6 py-3 text-white font-semibold text-sm rounded-xl transition-all hover:-translate-y-0.5 active:scale-95 flex items-center gap-2"
-                style={{
-                  background: '#8E44AD', // Purple for AI
-                  boxShadow: '4px 4px 8px #C8CAD4, -4px -4px 8px #FFFFFF',
-                }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09l2.846.813-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.428-1.428L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.428-1.428l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.428 1.428l1.183.394-1.183.394a2.25 2.25 0 0 0-1.428 1.428Z" />
-                </svg>
-                Analyze with Gemini AI
-              </button>
-              
-              <button 
-                className="px-6 py-3 text-white font-semibold text-sm rounded-xl transition-all hover:-translate-y-0.5 active:scale-95"
-                style={{
-                  background: '#FF6B35',
-                  boxShadow: '4px 4px 8px #C8CAD4, -4px -4px 8px #FFFFFF',
-                }}
-              >
-                Secure Save & Encrypt
-              </button>
-            </div>
-          </div>
-
-          {/* AI Differential Output Placeholder */}
-          <div 
-            className="rounded-3xl p-6 border-l-4 border-[#8E44AD]"
-            style={{
-              background: '#F2F4FA',
-              boxShadow: '6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF',
-            }}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-[#1E2035]">AI Differential Diagnosis</h3>
-              <span className="text-xs font-semibold text-[#8890B8]">Powered by Gemini 1.5 Flash</span>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-[#EEF0F5] shadow-inner border border-[#E84545]/20">
-                <div className="flex justify-between">
-                  <span className="font-bold text-[#E84545]">Myocardial Infarction (ICD10: I21.9)</span>
-                  <span className="font-mono text-sm font-bold text-[#1E2035]">92%</span>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              {[
+                ['Date of Birth', formatDate(patient.dob)],
+                ['Blood Type', patient.bloodType ?? '—'],
+                ['Gender', patient.gender],
+                ['Phone', patient.phone ?? '—'],
+                ['Email', patient.email ?? '—'],
+                ['Emergency Contact', patient.emergencyContact ?? '—'],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <p className="label text-2xs">{k}</p>
+                  <p className="text-foreground font-medium">{v}</p>
                 </div>
-                <p className="text-sm text-[#5A5A7A] mt-2">Patient age, left arm pain, shortness of breath, and diaphoresis strongly suggest acute coronary syndrome.</p>
-                <div className="mt-3 text-xs font-semibold text-[#1E2035]">
-                  Next Steps: ECG, Troponin, Aspirin
+              ))}
+            </div>
+            {patient.allergies.length > 0 && (
+              <div className="mt-4">
+                <p className="label text-2xs mb-1">Known Allergies</p>
+                <div className="flex flex-wrap gap-2">
+                  {patient.allergies.map((a: any) => (
+                    <span key={a} className="badge badge-red">{a}</span>
+                  ))}
                 </div>
               </div>
-            </div>
-            <p className="text-[10px] text-[#9898B8] mt-4 uppercase tracking-wide">
-              This is an AI-generated differential diagnosis and is for informational purposes only. It is not a substitute for professional medical judgment.
-            </p>
+            )}
           </div>
-        </div>
 
-        {/* Right Column: History & Vitals Timeline */}
-        <div className="space-y-6">
-          <div 
-            className="rounded-3xl p-6"
-            style={{
-              background: '#F2F4FA',
-              boxShadow: '6px 6px 12px #C8CAD4, -6px -6px 12px #FFFFFF',
-            }}
-          >
-            <h2 className="text-xl font-bold text-[#1E2035] mb-6">Chart History</h2>
-            
-            <PatientChartClient mrn={mrn} />
-
-            <div className="space-y-4 mt-8 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[#C8CAD4] before:to-transparent">
-              {/* Timeline Item */}
-              <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className="flex items-center justify-center w-4 h-4 rounded-full border border-white bg-[#FF6B35] shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2"></div>
-                <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-4 rounded-xl shadow-[inset_2px_2px_5px_#C8CAD4,inset_-2px_-2px_5px_#FFFFFF] bg-[#EEF0F5]">
-                  <div className="flex items-center justify-between space-x-2 mb-1">
-                    <div className="font-bold text-[#1E2035] text-sm">Vitals Logged</div>
-                    <time className="font-mono text-xs text-[#4A90D9]">10:00 AM</time>
+          {/* Latest Vitals */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-4">
+              <Activity className="w-4 h-4 text-green" />
+              <h2 className="font-bold text-foreground">Latest Vitals</h2>
+            </div>
+            {latestVitals ? (
+              <div className="space-y-2 text-sm">
+                {[
+                  ['BP', latestVitals.bpSystolic ? `${latestVitals.bpSystolic}/${latestVitals.bpDiastolic} mmHg` : '—'],
+                  ['Heart Rate', latestVitals.heartRate ? `${latestVitals.heartRate} bpm` : '—'],
+                  ['SpO₂', latestVitals.spo2 ? `${latestVitals.spo2}%` : '—'],
+                  ['Temp', latestVitals.temperatureF ? `${latestVitals.temperatureF}°F` : '—'],
+                  ['RR', latestVitals.respiratoryRate ? `${latestVitals.respiratoryRate}/min` : '—'],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex justify-between">
+                    <span className="text-muted">{k}</span>
+                    <span className="font-mono font-semibold text-foreground">{v}</span>
                   </div>
-                  <div className="text-xs text-[#5A5A7A]">BP 140/90, HR 82, SpO2 98%</div>
-                </div>
+                ))}
+                <p className="text-2xs text-muted mt-2">{formatDateTime(latestVitals.recordedAt)}</p>
               </div>
-            </div>
+            ) : (
+              <p className="text-sm text-muted">No vitals recorded</p>
+            )}
           </div>
         </div>
 
+        {/* Medical Records */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-blue" />
+              <h2 className="font-bold text-foreground">Medical Records</h2>
+            </div>
+          </div>
+          <table className="data-table">
+            <thead><tr><th>Type</th><th>ICD-10 Codes</th><th>Date</th></tr></thead>
+            <tbody>
+              {patient.medicalRecords.map((r: any) => (
+                <tr key={r.id}>
+                  <td><span className="font-semibold text-foreground text-sm">{r.recordType.replace('_', ' ')}</span></td>
+                  <td><span className="font-mono text-xs text-blue">{r.diagnosisCodes.join(', ') || '—'}</span></td>
+                  <td className="text-xs text-muted">{formatDate(r.createdAt)}</td>
+                </tr>
+              ))}
+              {patient.medicalRecords.length === 0 && (
+                <tr><td colSpan={3} className="text-center text-muted py-6">No records</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Prescriptions & Labs in columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="card">
+            <div className="flex items-center gap-2 mb-4">
+              <Pill className="w-4 h-4 text-purple" />
+              <h2 className="font-bold text-foreground">Prescriptions</h2>
+            </div>
+            <div className="space-y-2">
+              {patient.prescriptions.map((p: any) => (
+                <div key={p.id} className="card-inset">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-foreground">{p.diagnosis}</p>
+                    <Badge label={p.status} />
+                  </div>
+                  <p className="text-xs text-muted mt-1">{formatDate(p.createdAt)}</p>
+                </div>
+              ))}
+              {patient.prescriptions.length === 0 && <p className="text-sm text-muted">No prescriptions</p>}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="flex items-center gap-2 mb-4">
+              <FlaskConical className="w-4 h-4 text-yellow" />
+              <h2 className="font-bold text-foreground">Lab Orders</h2>
+            </div>
+            <div className="space-y-2">
+              {patient.labResults.map((l: any) => (
+                <div key={l.id} className="card-inset">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-foreground truncate">{l.testName}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge label={l.status} />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted mt-1">{formatDate(l.createdAt)}</p>
+                </div>
+              ))}
+              {patient.labResults.length === 0 && <p className="text-sm text-muted">No lab orders</p>}
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

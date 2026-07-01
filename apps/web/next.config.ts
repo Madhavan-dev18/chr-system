@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // --- Security Headers ---
   async headers() {
     return [
       {
@@ -9,24 +10,40 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          { 
-            key: 'Content-Security-Policy', 
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://*.upstash.io;" 
-          }
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' https://fonts.gstatic.com",
+              "img-src 'self' data: blob:",
+              "connect-src 'self' https://*.supabase.co https://*.upstash.io https://generativelanguage.googleapis.com",
+              "frame-ancestors 'none'",
+            ].join('; '),
+          },
         ],
       },
     ];
   },
-  transpilePackages: ['@chr/db'],
-  // Ensure we don't ignore build errors as strictly required by AGENTS.md
-  typescript: {
-    ignoreBuildErrors: false,
+
+  // Prevent accidental exposure of server-side env vars
+  typedRoutes: false,
+
+  // Production-safe logging
+  logging: {
+    fetches: {
+      fullUrl: process.env.NODE_ENV === 'development',
+    },
   },
-  eslint: {
-    ignoreDuringBuilds: false,
-  },
+
+  // Output standalone for containerized deployments
+  output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
 };
 
 export default nextConfig;

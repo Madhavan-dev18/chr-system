@@ -30,8 +30,8 @@ describe('TRPC Clinic Isolation Boundary', () => {
       return;
     }
 
-    const clinicA = await prisma.clinic.create({ data: { name: 'Test Clinic A - ' + Date.now() } });
-    const clinicB = await prisma.clinic.create({ data: { name: 'Test Clinic B - ' + Date.now() } });
+    const clinicA = await prisma.clinic.create({ data: { name: 'Test Clinic A - ' + Date.now(), slug: 'test-a-' + Date.now() } });
+    const clinicB = await prisma.clinic.create({ data: { name: 'Test Clinic B - ' + Date.now(), slug: 'test-b-' + Date.now() } });
     clinicAId = clinicA.id;
     clinicBId = clinicB.id;
 

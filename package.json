@@ -1,6 +1,6 @@
 {
   "name": "chr-system",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -15,7 +15,8 @@
     "test": "npm run test -w apps/web",
     "db:generate": "npm run generate -w packages/db",
     "db:push": "npm run push -w packages/db",
-    "db:migrate": "npm run migrate -w packages/db"
+    "db:migrate": "npm run migrate -w packages/db",
+    "db:seed": "npm run seed -w packages/db"
   },
   "dependencies": {
     "react": "19.1.0",

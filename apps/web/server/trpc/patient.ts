@@ -2,139 +2,174 @@ import { z } from 'zod';
 import { createTRPCRouter, clinicScopedProcedure } from './_base';
 import { TRPCError } from '@trpc/server';
 import { auditLog } from '@/lib/audit';
-import { Prisma } from '@chr/db';
+import { generateMRN } from '@/lib/utils';
+import type { Prisma } from '@chr/db';
 
-// Input Schemas
 const CreatePatientSchema = z.object({
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  dob: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Invalid date format" }),
+  firstName: z.string().min(1).max(100).trim(),
+  lastName: z.string().min(1).max(100).trim(),
+  dob: z
+    .string()
+    .refine((v) => !isNaN(Date.parse(v)) && new Date(v) < new Date(), {
+      message: 'Date of birth must be a valid past date',
+    }),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
-  bloodType: z.string().optional(),
-  allergies: z.array(z.string()),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  address: z.string().optional(),
-  emergencyContact: z.string().optional(),
+  bloodType: z
+    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
+    .optional(),
+  allergies: z.array(z.string().max(100)).max(50).default([]),
+  phone: z
+    .string()
+    .regex(/^[\d\s\-+().]+$/, 'Invalid phone number')
+    .optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  address: z.string().max(500).optional(),
+  emergencyContact: z.string().max(300).optional(),
   assignedDoctorId: z.string().uuid().optional(),
   assignedNurseId: z.string().uuid().optional(),
 });
 
+const UpdatePatientSchema = CreatePatientSchema.partial().extend({
+  id: z.string().uuid(),
+});
+
 export const patientRouter = createTRPCRouter({
-  
+  /** Register a new patient (Admin or Receptionist) */
   create: clinicScopedProcedure
     .input(CreatePatientSchema)
     .mutation(async ({ ctx, input }) => {
-      // Admin and Receptionist can create patients
-      if (ctx.session.user.role !== 'ADMIN' && ctx.session.user.role !== 'RECEPTIONIST') {
+      const { role, clinicId, id: userId } = ctx.session!.user;
+      if (role !== 'ADMIN' && role !== 'RECEPTIONIST') {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'Only Administrators and Receptionists can register new patients.',
+          message: 'Only Admins and Receptionists can register patients.',
         });
       }
 
-      // Generate MRN (Medical Record Number): MRN-YYYYMM-[4 random hex chars]
-      const dateStr = new Date().toISOString().slice(0, 7).replace('-', '');
-      const randomHex = Math.floor(Math.random() * 65536).toString(16).padStart(4, '0').toUpperCase();
-      const mrn = `MRN-${dateStr}-${randomHex}`;
+      const mrn = generateMRN();
 
       const patient = await ctx.db.$transaction(async (tx: any) => {
-        const createdPatient = await tx.patient.create({
+        return tx.patient.create({
           data: {
             ...input,
+            email: input.email || undefined,
             dob: new Date(input.dob),
             mrn,
-            clinicId: ctx.session.user.clinicId,
+            clinicId,
           },
         });
-
-        return createdPatient;
       });
 
-      // Execute audit log after transaction commits to prevent "Slow-Log" transaction bloat
-      // Fallback handles errors without failing the UI
       await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
-        clinicId: ctx.session.user.clinicId,
+        userId,
+        clinicId,
         action: 'CREATE',
         resource: 'Patient',
         resourceId: patient.id,
         ipAddress: ctx.ip,
         userAgent: ctx.userAgent,
         requestId: ctx.requestId,
+        metadata: { mrn },
       });
 
       return patient;
     }),
 
+  /** List patients — RBAC-scoped to role */
   list: clinicScopedProcedure
-    .input(z.object({ search: z.string().optional() }).optional())
+    .input(
+      z.object({
+        search: z.string().max(100).optional(),
+        limit: z.number().min(1).max(200).default(50),
+        cursor: z.string().uuid().optional(),
+      }).optional()
+    )
     .query(async ({ ctx, input }) => {
-      const { role, id: userId, clinicId } = ctx.session.user;
+      const { role, id: userId, clinicId } = ctx.session!.user;
 
-      // Base query scoped to clinic and active records
-      const whereClause: Prisma.PatientWhereInput = {
+      const where: any = {
         clinicId,
         deletedAt: null,
-        ...(input?.search ? {
-          OR: [
-            { firstName: { contains: input.search, mode: 'insensitive' } },
-            { lastName: { contains: input.search, mode: 'insensitive' } },
-            { mrn: { contains: input.search, mode: 'insensitive' } },
-            { email: { contains: input.search, mode: 'insensitive' } },
-          ]
-        } : {})
+        ...(input?.search
+          ? {
+              OR: [
+                { firstName: { contains: input.search, mode: 'insensitive' } },
+                { lastName: { contains: input.search, mode: 'insensitive' } },
+                { mrn: { contains: input.search, mode: 'insensitive' } },
+                { email: { contains: input.search, mode: 'insensitive' } },
+                { phone: { contains: input.search } },
+              ],
+            }
+          : {}),
       };
 
-      // RBAC filtering
-      if (role === 'DOCTOR') {
-        whereClause.assignedDoctorId = userId;
-      } else if (role === 'NURSE') {
-        whereClause.assignedNurseId = userId;
-      } else if (role !== 'ADMIN' && role !== 'RECEPTIONIST') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized role for listing patients.' });
+      // RBAC scoping
+      if (role === 'DOCTOR') where.assignedDoctorId = userId;
+      else if (role === 'NURSE') where.assignedNurseId = userId;
+      else if (role !== 'ADMIN' && role !== 'RECEPTIONIST') {
+        throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
+      const limit = input?.limit ?? 50;
       const patients = await ctx.db.patient.findMany({
-        where: whereClause,
+        where,
         orderBy: { createdAt: 'desc' },
+        take: limit + 1,
+        ...(input?.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
         include: {
           vitals: {
             orderBy: { recordedAt: 'desc' },
             take: 1,
+            select: {
+              bpSystolic: true,
+              bpDiastolic: true,
+              heartRate: true,
+              spo2: true,
+              temperatureF: true,
+              recordedAt: true,
+            },
           },
-          assignedDoctor: {
-            select: { email: true }, // Ideally would be name, but User model only has email currently
-          }
-        }
+          assignedDoctor: { select: { id: true, email: true } },
+        },
       });
 
-      return patients;
+      let nextCursor: string | undefined;
+      if (patients.length > limit) {
+        const next = patients.pop();
+        nextCursor = next?.id;
+      }
+
+      return { patients, nextCursor };
     }),
 
+  /** Get a single patient by ID */
   getById: clinicScopedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { role, id: userId, clinicId } = ctx.session.user;
+      const { role, id: userId, clinicId } = ctx.session!.user;
 
       const patient = await ctx.db.patient.findUnique({
         where: { id: input.id },
+        include: {
+          assignedDoctor: { select: { id: true, email: true } },
+          assignedNurse: { select: { id: true, email: true } },
+        },
       });
 
       if (!patient || patient.clinicId !== clinicId || patient.deletedAt) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient not found' });
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient not found.' });
       }
 
-      // RBAC check
+      // RBAC
       if (role === 'DOCTOR' && patient.assignedDoctorId !== userId) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient not assigned to you.' });
       }
       if (role === 'NURSE' && patient.assignedNurseId !== userId) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient not assigned to you.' });
       }
 
       await auditLog(ctx.db, {
-        userId: ctx.session.user.id,
+        userId,
         clinicId,
         action: 'VIEW',
         resource: 'Patient',
@@ -147,23 +182,42 @@ export const patientRouter = createTRPCRouter({
       return patient;
     }),
 
-  getMyProfile: clinicScopedProcedure
-    .query(async ({ ctx }) => {
-      const { role, id: userId, clinicId } = ctx.session.user;
+  /** Patient portal: get own profile */
+  getMyProfile: clinicScopedProcedure.query(async ({ ctx }) => {
+    const { role, id: userId, clinicId } = ctx.session!.user;
+    if (role !== 'PATIENT') throw new TRPCError({ code: 'FORBIDDEN' });
 
-      if (role !== 'PATIENT') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only patients can access their own profile.' });
+    const patient = await ctx.db.patient.findUnique({ where: { userId } });
+    if (!patient || patient.clinicId !== clinicId || patient.deletedAt) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Profile not found.' });
+    }
+    return patient;
+  }),
+
+  /** Soft-delete a patient (Admin only) */
+  softDelete: clinicScopedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.session!.user.role !== 'ADMIN') {
+        throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
-      const patient = await ctx.db.patient.findUnique({
-        where: { userId },
+      const patient = await ctx.db.patient.update({
+        where: { id: input.id, clinicId: ctx.session!.user.clinicId },
+        data: { deletedAt: new Date() },
       });
 
-      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient profile not found.' });
-      }
+      await auditLog(ctx.db, {
+        userId: ctx.session!.user.id,
+        clinicId: ctx.session!.user.clinicId,
+        action: 'DELETE',
+        resource: 'Patient',
+        resourceId: patient.id,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+        requestId: ctx.requestId,
+      });
 
-      return patient;
+      return { success: true };
     }),
 });
-

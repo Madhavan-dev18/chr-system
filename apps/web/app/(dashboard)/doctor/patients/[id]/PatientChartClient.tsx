@@ -9,7 +9,8 @@ export function PatientChartClient({ mrn }: { mrn: string }) {
   const [clinicalNote, setClinicalNote] = useState('');
 
   // First get the patient ID by MRN
-  const { data: patients, isLoading: patientLoading } = trpc.patients.list.useQuery({ search: mrn });
+  const { data: patientsData, isLoading: patientLoading } = trpc.patients.list.useQuery({ search: mrn });
+  const patients = patientsData?.patients ?? [];
   const patient = patients?.[0];
 
   // Then fetch vitals

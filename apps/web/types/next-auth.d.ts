@@ -1,27 +1,31 @@
-import NextAuth, { type DefaultSession } from 'next-auth';
-import { JWT } from 'next-auth/jwt';
-import { Role } from '@chr/db';
+import type { Role } from '@chr/db';
+import 'next-auth';
+import 'next-auth/jwt';
 
 declare module 'next-auth' {
   interface Session {
     user: {
       id: string;
+      email: string;
       role: Role;
       clinicId: string | null;
-    } & DefaultSession['user'];
+      name?: string | null;
+      image?: string | null;
+    };
   }
 
   interface User {
-    id: string;
-    role: Role;
-    clinicId: string | null;
+    id?: string;
+    email?: string | null;
+    role?: Role;
+    clinicId?: string | null;
   }
 }
 
 declare module 'next-auth/jwt' {
   interface JWT {
-    id: string;
-    role: Role;
-    clinicId: string | null;
+    id?: string;
+    role?: Role;
+    clinicId?: string | null;
   }
 }

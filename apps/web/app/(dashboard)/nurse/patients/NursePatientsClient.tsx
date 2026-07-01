@@ -8,7 +8,8 @@ export function NursePatientsClient() {
   const [searchQuery, setSearchQuery] = useState('');
   const [recordingVitalsFor, setRecordingVitalsFor] = useState<string | null>(null);
 
-  const { data: patients, isLoading, refetch } = trpc.patients.list.useQuery();
+  const { data: patientsData, isLoading, refetch } = trpc.patients.list.useQuery();
+  const patients = patientsData?.patients ?? [];
 
   const filteredPatients = patients?.filter((p: any) => 
     p.mrn.toLowerCase().includes(searchQuery.toLowerCase()) || 

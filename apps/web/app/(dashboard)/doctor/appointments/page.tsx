@@ -10,14 +10,15 @@ export default function DoctorAppointments() {
   const { data: session } = useSession();
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
-  const { data: appointments, refetch } = trpc.appointments.list.useQuery({
-    startDate: new Date(`${selectedDate}T00:00:00.000Z`).toISOString(),
-    endDate: new Date(`${selectedDate}T23:59:59.999Z`).toISOString(),
+  const { data: appointmentsData, refetch } = trpc.appointments.list.useQuery({
+    from: new Date(`${selectedDate}T00:00:00.000Z`).toISOString(),
+    to: new Date(`${selectedDate}T23:59:59.999Z`).toISOString(),
     doctorId: session?.user?.id,
   }, {
     enabled: !!session?.user?.id,
   });
 
+  const appointments = appointmentsData?.appointments ?? [];
   const updateStatusMutation = trpc.appointments.updateStatus.useMutation({
     onSuccess: () => refetch()
   });

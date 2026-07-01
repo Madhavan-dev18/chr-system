@@ -6,40 +6,26 @@ import { encryptRecord, decryptRecord } from '@/lib/crypto';
 
 const CreateRecordSchema = z.object({
   patientId: z.string().uuid(),
-  recordType: z.string().min(1),
-  content: z.string().min(1), // Plaintext from UI, will be encrypted before DB
-  diagnosisCodes: z.array(z.string()).optional(),
+  recordType: z.enum(['SOAP_NOTE', 'CONSULTATION', 'PROGRESS_NOTE', 'DISCHARGE_SUMMARY', 'REFERRAL', 'PROCEDURE_NOTE']),
+  content: z.string().min(10).max(50000),
+  diagnosisCodes: z.array(z.string().regex(/^[A-Z]\d{2}(?:\.\d{1,4})?$/, 'Must be valid ICD-10 code')).max(20).default([]),
 });
 
 export const recordsRouter = createTRPCRouter({
   create: clinicScopedProcedure
     .input(CreateRecordSchema)
     .mutation(async ({ ctx, input }) => {
-      const { role, id: userId, clinicId } = ctx.session.user;
+      const { role, id: userId, clinicId } = ctx.session!.user;
+      if (role !== 'DOCTOR') throw new TRPCError({ code: 'FORBIDDEN', message: 'Only doctors can author clinical records.' });
 
-      if (role !== 'DOCTOR') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only doctors can author clinical records.' });
-      }
+      const patient = await ctx.db.patient.findUnique({ where: { id: input.patientId } });
+      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (patient.assignedDoctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient not assigned to you.' });
 
-      // Verify patient access
-      const patient = await ctx.db.patient.findUnique({
-        where: { id: input.patientId },
-      });
-
-      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient not found.' });
-      }
-
-      if (patient.assignedDoctorId !== userId) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
-      }
-
-      // ** MILITARY GRADE ENCRYPTION **
-      // The clinical note is encrypted in Node.js memory. The DB only ever sees random bytes.
       const { ciphertext, iv, authTag } = encryptRecord(input.content);
 
       const record = await ctx.db.$transaction(async (tx: any) => {
-        const createdRecord = await tx.medicalRecord.create({
+        return tx.medicalRecord.create({
           data: {
             patientId: input.patientId,
             doctorId: userId,
@@ -47,23 +33,18 @@ export const recordsRouter = createTRPCRouter({
             encryptedContent: new Uint8Array(ciphertext),
             iv: new Uint8Array(iv),
             authTag: new Uint8Array(authTag),
-            diagnosisCodes: input.diagnosisCodes || [],
+            diagnosisCodes: input.diagnosisCodes,
             clinicId,
           },
         });
-
-        return createdRecord;
       });
 
       await auditLog(ctx.db, {
-        userId,
-        clinicId,
-        action: 'CREATE',
-        resource: 'MedicalRecord',
+        userId, clinicId,
+        action: 'CREATE', resource: 'MedicalRecord',
         resourceId: record.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
+        metadata: { recordType: input.recordType, diagnosisCodes: input.diagnosisCodes },
       });
 
       return { id: record.id, createdAt: record.createdAt };
@@ -72,95 +53,60 @@ export const recordsRouter = createTRPCRouter({
   listByPatient: clinicScopedProcedure
     .input(z.object({ patientId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { role, id: userId, clinicId } = ctx.session.user;
+      const { role, id: userId, clinicId } = ctx.session!.user;
 
-      // Access checks
-      const patient = await ctx.db.patient.findUnique({
-        where: { id: input.patientId },
-      });
+      const patient = await ctx.db.patient.findUnique({ where: { id: input.patientId } });
+      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (role === 'DOCTOR' && patient.assignedDoctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+      if (role === 'PATIENT' && patient.userId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
 
-      if (!patient || patient.clinicId !== clinicId || patient.deletedAt) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Patient not found.' });
-      }
-
-      if (role === 'DOCTOR' && patient.assignedDoctorId !== userId) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
-      }
-
-      // Note: We deliberately exclude `encryptedContent`, `iv`, and `authTag` from the SELECT
-      // to save massive amounts of bandwidth on the list view.
-      const recordsList = await ctx.db.medicalRecord.findMany({
-        where: { patientId: input.patientId, clinicId },
+      const records = await ctx.db.medicalRecord.findMany({
+        where: { patientId: input.patientId, clinicId, deletedAt: null },
         select: {
-          id: true,
-          recordType: true,
-          diagnosisCodes: true,
-          createdAt: true,
-          doctor: { select: { email: true } },
+          id: true, recordType: true, diagnosisCodes: true, createdAt: true, version: true,
+          doctor: { select: { id: true, email: true } },
         },
         orderBy: { createdAt: 'desc' },
       });
 
       await auditLog(ctx.db, {
-        userId,
-        clinicId,
-        action: 'VIEW',
-        resource: 'MedicalRecord (List)',
+        userId, clinicId,
+        action: 'VIEW', resource: 'MedicalRecord(list)',
         resourceId: input.patientId,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
       });
 
-      return recordsList;
+      return records;
     }),
 
   getDecryptedContent: clinicScopedProcedure
     .input(z.object({ recordId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { role, id: userId, clinicId } = ctx.session.user;
+      const { role, id: userId, clinicId } = ctx.session!.user;
 
       const record = await ctx.db.medicalRecord.findUnique({
         where: { id: input.recordId },
         include: { patient: true },
       });
 
-      if (!record || record.clinicId !== clinicId || record.deletedAt) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Record not found.' });
-      }
+      if (!record || record.clinicId !== clinicId || record.deletedAt) throw new TRPCError({ code: 'NOT_FOUND' });
 
-      // Access Check
-      if (role === 'DOCTOR' && record.patient.assignedDoctorId !== userId) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
-      }
-      if (role === 'PATIENT' && record.patient.userId !== userId) {
-         throw new TRPCError({ code: 'FORBIDDEN', message: 'You can only view your own records.' });
-      }
-      if (role === 'NURSE' && record.patient.assignedNurseId !== userId) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Patient is not assigned to you.' });
-      }
+      if (role === 'DOCTOR' && record.patient.assignedDoctorId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+      if (role === 'NURSE' && record.patient.assignedNurseId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
+      if (role === 'PATIENT' && record.patient.userId !== userId) throw new TRPCError({ code: 'FORBIDDEN' });
 
-      // ** DECRYPTION **
-      let plaintext = "";
+      let plaintext: string;
       try {
-        plaintext = decryptRecord(
-          Buffer.from(record.encryptedContent), 
-          Buffer.from(record.iv), 
-          Buffer.from(record.authTag)
-        );
-      } catch (e) {
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Decryption failed or record was tampered with.' });
+        plaintext = decryptRecord(Buffer.from(record.encryptedContent), Buffer.from(record.iv), Buffer.from(record.authTag));
+      } catch {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Decryption failed — record may be corrupted.' });
       }
 
       await auditLog(ctx.db, {
-        userId,
-        clinicId,
-        action: 'VIEW',
-        resource: 'MedicalRecord (Decrypted)',
+        userId, clinicId,
+        action: 'VIEW', resource: 'MedicalRecord(decrypt)',
         resourceId: record.id,
-        ipAddress: ctx.ip,
-        userAgent: ctx.userAgent,
-        requestId: ctx.requestId,
+        ipAddress: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId,
       });
 
       return {
@@ -169,7 +115,7 @@ export const recordsRouter = createTRPCRouter({
         content: plaintext,
         diagnosisCodes: record.diagnosisCodes,
         createdAt: record.createdAt,
+        doctor: { id: record.doctorId },
       };
     }),
 });
-

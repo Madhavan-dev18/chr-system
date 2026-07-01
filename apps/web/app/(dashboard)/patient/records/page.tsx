@@ -11,8 +11,9 @@ export default function PatientRecords() {
   // We need to fetch the patient's internal ID first
   const { data: profile } = trpc.patients.getById.useQuery({ id: session?.user?.id || '' }, { enabled: !!session?.user?.id });
 
-  const { data: prescriptions } = trpc.prescriptions.list.useQuery({ patientId: profile?.id || '' }, { enabled: !!profile?.id });
-  const { data: labs } = trpc.labs.list.useQuery({ patientId: profile?.id || '' }, { enabled: !!profile?.id });
+  const { data: prescriptions } = trpc.prescriptions.listByPatient.useQuery({ patientId: profile?.id || '' }, { enabled: !!profile?.id });
+  const { data: labsData } = trpc.labs.listOrders.useQuery({ patientId: profile?.id || undefined }, { enabled: !!profile?.id });
+  const labs = labsData?.orders ?? [];
   const { data: vitals } = trpc.vitals.listByPatient.useQuery({ patientId: profile?.id || '' }, { enabled: !!profile?.id });
 
   return (

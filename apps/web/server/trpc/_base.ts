@@ -1,79 +1,116 @@
 import { initTRPC, TRPCError } from '@trpc/server';
-import { TRPCContext } from './context';
-import { Role } from '@chr/db';
-import { auditLog } from '@/lib/audit';
 import superjson from 'superjson';
-import { prisma, tenantStorage } from '@/lib/prisma';
+import { Role } from '@chr/db';
 import { Ratelimit } from '@upstash/ratelimit';
 import { redis } from '@/lib/redis';
+import { auditLog } from '@/lib/audit';
+import { tenantStorage } from '@/lib/prisma';
+import type { TRPCContext } from './context';
 
-// 10 requests / 10 seconds for standard APIs
-const standardRateLimit = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(10, '10 s'),
+// ── Rate limiters ────────────────────────────────────────────────
+
+/** Standard API: 20 req / 10 s per IP */
+const standardLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(20, '10 s'),
   analytics: true,
-  prefix: '@upstash/ratelimit:standard',
+  prefix: 'chr:trpc:standard',
 });
 
-// 3 requests / 1 minute for auth/ai
-const strictRateLimit = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(3, '1 m'),
+/** Strict: 5 req / 1 min per IP (auth, AI) */
+const strictLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, '1 m'),
   analytics: true,
-  prefix: '@upstash/ratelimit:strict',
+  prefix: 'chr:trpc:strict',
 });
+
+// ── tRPC init ────────────────────────────────────────────────────
 
 const t = initTRPC.context<TRPCContext>().create({
   transformer: superjson,
   errorFormatter({ shape, error }) {
+    // In production, scrub INTERNAL_SERVER_ERROR details from the client.
+    // Sentry would capture the original error on the server side.
     if (error.code === 'INTERNAL_SERVER_ERROR') {
-      // Log unhandled server errors to Sentry for real-world observability
-      console.error('[Sentry] captureException: tRPC INTERNAL_SERVER_ERROR', error);
-      // Sentry.captureException(error);
+      console.error('[tRPC] Unhandled server error:', error.cause ?? error);
+      return {
+        ...shape,
+        message: 'An internal server error occurred.',
+        data: { ...shape.data, stack: undefined },
+      };
     }
     return shape;
   },
 });
 
-const rateLimiterMiddleware = t.middleware(async ({ ctx, path, next }) => {
-  const ip = ctx.ip || '127.0.0.1';
-  const isStrictRoute = path.startsWith('auth.') || path.startsWith('ai.');
-  const limiter = isStrictRoute ? strictRateLimit : standardRateLimit;
-  
-  const { success } = await limiter.limit(ip);
-  if (!success) {
-    throw new TRPCError({
-      code: 'TOO_MANY_REQUESTS',
-      message: 'Rate limit exceeded. Please try again later.',
-    });
-  }
-  return next();
-});
+// ── Middleware ───────────────────────────────────────────────────
 
-export const createTRPCRouter = t.router;
+/** Apply IP-based rate limiting. isStrict=true for auth/AI routes. */
+const rateLimitMiddleware = (isStrict = false) =>
+  t.middleware(async ({ ctx, path, next }) => {
+    const ip = ctx.ip;
+    const limiter = isStrict ? strictLimiter : standardLimiter;
+    const { success, limit, remaining } = await limiter.limit(ip);
 
-export const publicProcedure = t.procedure.use(rateLimiterMiddleware);
+    if (!success) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: `Rate limit exceeded (${limit} req / window). Please try again later.`,
+      });
+    }
 
-// Constraint 6: protectedProcedure + RBAC role check + clinic_id scope + auditLog
-export const protectedProcedure = t.procedure.use(rateLimiterMiddleware).use(async ({ ctx, next, path, type }) => {
-  if (!ctx.session || !ctx.session.user) {
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
-
-  const result = await next({
-    ctx: {
-      session: { ...ctx.session, user: ctx.session.user },
-    },
+    void remaining; // available for future use in response headers
+    return next();
   });
 
-  // Automatically audit log mutations for authenticated users
-  if (type === 'mutation' && result.ok) {
-    // Note: In a real system, you might want more granular control over what gets audited,
-    // or infer the action/resource from the path. This is a baseline implementation.
+/** Require a valid session. */
+const authMiddleware = t.middleware(({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'You must be logged in.' });
+  }
+  return next({
+    ctx: {
+      ...ctx,
+      session: ctx.session as NonNullable<typeof ctx.session>,
+    },
+  });
+});
+
+/** Scope all DB queries to the user's clinic via AsyncLocalStorage. */
+const clinicIsolationMiddleware = t.middleware(({ ctx, next }) => {
+  if (!ctx.session?.user) {
+    throw new TRPCError({ code: 'UNAUTHORIZED' });
+  }
+  if (!ctx.session!.user.clinicId) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'This action requires a clinic context.',
+    });
+  }
+
+  return tenantStorage.run(ctx.session!.user.clinicId, () =>
+    next({
+      ctx: {
+        ...ctx,
+        session: ctx.session as NonNullable<typeof ctx.session> & {
+          user: NonNullable<typeof ctx.session>['user'] & { clinicId: string };
+        },
+      },
+    })
+  );
+});
+
+/** Auto-audit mutations after they succeed. */
+const auditMiddleware = t.middleware(async ({ ctx, path, type, next }) => {
+  const result = await next();
+
+  if (type === 'mutation' && result.ok && ctx.session?.user) {
+    const user = ctx.session!.user;
     await auditLog(ctx.db, {
-      userId: ctx.session.user.id,
-      clinicId: ctx.session.user.clinicId || undefined,
-      action: 'UPDATE', // Default, should be overridden by specific procedures if needed
+      userId: user.id,
+      clinicId: user.clinicId,
+      action: 'UPDATE',
       resource: path,
       ipAddress: ctx.ip,
       userAgent: ctx.userAgent,
@@ -84,57 +121,55 @@ export const protectedProcedure = t.procedure.use(rateLimiterMiddleware).use(asy
   return result;
 });
 
-// Middleware for RBAC
-export const allowedRoles = (roles: Role[]) => {
-  return t.middleware(async ({ ctx, next }) => {
-    if (!ctx.session || !ctx.session.user) {
-      throw new TRPCError({ code: 'UNAUTHORIZED' });
-    }
+// ── RBAC helper ──────────────────────────────────────────────────
 
-    if (!roles.includes(ctx.session.user.role)) {
+export function requireRoles(allowed: Role[]) {
+  return t.middleware(({ ctx, next }) => {
+    if (!ctx.session?.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
+    if (!allowed.includes(ctx.session!.user.role as Role)) {
       throw new TRPCError({
         code: 'FORBIDDEN',
-        message: 'You do not have the required role to access this resource.',
+        message: `Access requires one of: ${allowed.join(', ')}.`,
       });
     }
-
-    return next({
-      ctx: {
-        session: { ...ctx.session, user: ctx.session.user },
-      },
-    });
+    return next();
   });
-};
+}
 
-export const adminProcedure = protectedProcedure.use(allowedRoles([Role.ADMIN]));
-export const doctorProcedure = protectedProcedure.use(allowedRoles([Role.DOCTOR]));
-export const nurseProcedure = protectedProcedure.use(allowedRoles([Role.NURSE]));
-export const patientProcedure = protectedProcedure.use(allowedRoles([Role.PATIENT]));
-export const receptionistProcedure = protectedProcedure.use(allowedRoles([Role.RECEPTIONIST]));
-export const labTechProcedure = protectedProcedure.use(allowedRoles([Role.LAB_TECH]));
+// ── Exported procedure builders ──────────────────────────────────
 
-// Middleware to strictly scope procedures to a clinic context using Prisma Extension
-export const enforceClinicIsolation = t.middleware(async ({ ctx, next }) => {
-  if (!ctx.session?.user?.clinicId) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'This action requires a clinic context. Cross-tenant queries are forbidden.',
-    });
-  }
-  
-  const clinicId = ctx.session.user.clinicId;
+export const createTRPCRouter = t.router;
 
-  return tenantStorage.run(clinicId as string, () => {
-    return next({
-      ctx: {
-        ...ctx,
-        session: {
-          ...ctx.session!,
-          user: { ...ctx.session!.user, clinicId: clinicId as string },
-        }
-      },
-    });
-  });
-});
+/** Public — rate-limited, no auth required */
+export const publicProcedure = t.procedure.use(rateLimitMiddleware());
 
-export const clinicScopedProcedure = protectedProcedure.use(enforceClinicIsolation);
+/** Protected — requires auth, auto-audits mutations */
+export const protectedProcedure = t.procedure
+  .use(rateLimitMiddleware())
+  .use(authMiddleware)
+  .use(auditMiddleware);
+
+/** Clinic-scoped — requires auth + clinicId, row-level isolation via tenantStorage */
+export const clinicScopedProcedure = t.procedure
+  .use(rateLimitMiddleware())
+  .use(authMiddleware)
+  .use(clinicIsolationMiddleware)
+  .use(auditMiddleware);
+
+/** Strict-rate-limited (auth routes, AI) */
+export const strictProcedure = t.procedure
+  .use(rateLimitMiddleware(true))
+  .use(authMiddleware)
+  .use(clinicIsolationMiddleware)
+  .use(auditMiddleware);
+
+// Role-specific shortcuts
+export const adminProcedure = clinicScopedProcedure.use(requireRoles([Role.ADMIN]));
+export const doctorProcedure = clinicScopedProcedure.use(requireRoles([Role.DOCTOR]));
+export const nurseProcedure = clinicScopedProcedure.use(requireRoles([Role.NURSE]));
+export const patientProcedure = clinicScopedProcedure.use(requireRoles([Role.PATIENT]));
+export const receptionistProcedure = clinicScopedProcedure.use(requireRoles([Role.RECEPTIONIST]));
+export const labTechProcedure = clinicScopedProcedure.use(requireRoles([Role.LAB_TECH]));
+export const doctorOrNurseProcedure = clinicScopedProcedure.use(
+  requireRoles([Role.DOCTOR, Role.NURSE])
+);

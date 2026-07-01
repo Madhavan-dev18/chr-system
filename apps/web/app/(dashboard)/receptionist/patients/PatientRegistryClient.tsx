@@ -9,7 +9,8 @@ export function PatientRegistryClient() {
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: patients, isLoading, refetch } = trpc.patients.list.useQuery();
+  const { data: patientsData, isLoading, refetch } = trpc.patients.list.useQuery();
+  const patients = patientsData?.patients ?? [];
 
   const filteredPatients = patients?.filter((p: any) => 
     p.mrn.toLowerCase().includes(searchQuery.toLowerCase()) || 

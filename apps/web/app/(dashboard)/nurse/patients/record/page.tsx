@@ -16,7 +16,8 @@ export default function VitalsEntry() {
   const [heightCm, setHeightCm] = useState('');
   const [notes, setNotes] = useState('');
 
-  const { data: patients } = trpc.patients.list.useQuery({});
+  const { data: patientsData } = trpc.patients.list.useQuery({});
+  const patients = patientsData?.patients ?? [];
   const { refetch: refetchVitals } = trpc.vitals.listByPatient.useQuery({ patientId }, { enabled: !!patientId });
 
   const recordMutation = trpc.vitals.record.useMutation({

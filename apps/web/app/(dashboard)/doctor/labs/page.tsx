@@ -8,14 +8,16 @@ export default function DoctorLabReview() {
   const [patientId, setPatientId] = useState('');
   const [testName, setTestName] = useState('');
 
-  const { data: patients } = trpc.patients.list.useQuery({});
+  const { data: patientsData } = trpc.patients.list.useQuery({});
+  const patients = patientsData?.patients ?? [];
   
-  const { data: labs, refetch } = trpc.labs.list.useQuery(
+  const { data: labsData, refetch } = trpc.labs.listOrders.useQuery(
     { patientId: patientId || undefined },
     { enabled: true }
   );
+  const labs = labsData?.orders ?? [];
 
-  const orderMutation = trpc.labs.orderTest.useMutation({
+  const orderMutation = trpc.labs.createOrder.useMutation({
     onSuccess: () => {
       setPatientId('');
       setTestName('');
